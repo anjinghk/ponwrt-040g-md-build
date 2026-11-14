@@ -1,0 +1,5 @@
+# 追加到 feeds.conf（PonWrt 自带 7 个官方源保持不变，只加下面 2 个）
+# luci-theme-vantage 主题（含中文语言包 luci-i18n-vantage-theme-zh-cn）
+src-git vantage https://github.com/anothaDev/luci-theme-vantage.git
+# luci-app-airoha-npu（含中文语言包 luci-i18n-airoha-npu-zh-cn）
+src-git airoha https://github.com/naoki66/luci-app-airoha.git
