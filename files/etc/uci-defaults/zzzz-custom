@@ -1,0 +1,26 @@
+#!/bin/sh
+# 首次开机自动配置（执行成功后系统会删除本脚本）
+# 文件名以 zzzz- 开头，保证排在 Vantage 自带的 30_luci-theme-vantage 之后
+
+LAN_IP="192.168.100.1"
+
+# 1) LAN 管理地址：config_generate 用 add_list 写 ipaddr，必须先删再写
+uci -q delete network.lan.ipaddr
+uci -q add_list network.lan.ipaddr="${LAN_IP}/24"
+uci -q set network.lan.netmask='255.255.255.0'
+uci commit network
+
+# 2) 界面强制简体中文（中文语言包已编进固件）
+uci -q set luci.main.lang='zh_cn'
+uci -q set luci.languages.zh_cn='中文 (Chinese)'
+uci commit luci
+
+# 3) 默认主题设为 Vantage
+uci -q set luci.main.mediaurlbase='/luci-static/vantage'
+uci commit luci
+
+# 4) 清 LuCI 缓存，让菜单与翻译立即生效
+rm -f /tmp/luci-indexcache.*
+rm -rf /tmp/luci-modulecache/
+
+exit 0
