@@ -1,0 +1,109 @@
+name: 编译 PonWrt XG-040G-MD 固件
+
+# 首次 push 会自动编译一次；之后改配置再 push 也会触发。
+# 也可以在 Actions 页面点 "Run workflow" 手动重跑（可指定并行数）。
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'make 并行数（2 核 runner 建议 2，避免内存不足）'
+        required: false
+        default: '2'
+      verbose:
+        description: '输出详细编译日志 (V=s)'
+        type: boolean
+        default: false
+  push:
+    branches: [ main ]
+    paths:
+      - 'config.addon'
+      - 'feeds.addon'
+      - 'files/**'
+      - 'build.sh'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ponwrt-040g-md-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Ubuntu 24.04 上已逐一验证过下面 76 个包名均可用
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: 检出配置仓库
+        uses: actions/checkout@v4
+
+      - name: 释放磁盘空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
+                      /usr/local/.ghcup || true
+          sudo apt-get clean
+          df -h
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+            gettext gcc-multilib g++-multilib git libgnutls28-dev gperf haveged help2man \
+            intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp-dev \
+            libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev zlib1g-dev lld llvm lrzsz \
+            genisoimage msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 \
+            python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c \
+            rsync scons squashfs-tools subversion swig texinfo node-uglify upx-ucl unzip \
+            vim wget xmlto xxd zstd
+          echo "依赖安装完成"
+
+      - name: 克隆 PonWrt 主线
+        run: |
+          git clone --depth 1 https://github.com/pbs05/ponwrt.git ponwrt
+          git -C ponwrt log -1 --format='PonWrt 源码版本: %h %s'
+
+      - name: 生成配置并编译
+        working-directory: ponwrt
+        env:
+          JOBS: ${{ github.event.inputs.jobs || '2' }}
+          V: ${{ github.event.inputs.verbose == 'true' && 's' || '' }}
+        run: |
+          mkdir -p custom
+          cp -v "$GITHUB_WORKSPACE"/build.sh "$GITHUB_WORKSPACE"/config.addon \
+                "$GITHUB_WORKSPACE"/feeds.addon custom/
+          cp -rv "$GITHUB_WORKSPACE"/files custom/
+          chmod +x custom/build.sh custom/files/etc/uci-defaults/zzzz-custom
+          echo "并行编译数 JOBS=$JOBS"
+          ./custom/build.sh .
+
+      - name: 收集固件
+        run: |
+          mkdir -p firmware
+          find ponwrt/bin/targets/airoha/an7581 -maxdepth 1 -type f -exec cp -v {} firmware/ \;
+          ls -lh firmware/
+          test -n "$(ls -A firmware)" || { echo "::error::未找到固件文件"; exit 1; }
+
+      - name: 上传固件
+        uses: actions/upload-artifact@v4
+        with:
+          name: ponwrt-xg-040g-md-firmware
+          path: firmware/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 写入运行摘要
+        run: |
+          echo "### 编译完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 文件 | 大小 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for f in firmware/*; do
+            echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "登录地址 http://192.168.100.1，界面简体中文，主题 Vantage" >> "$GITHUB_STEP_SUMMARY"
