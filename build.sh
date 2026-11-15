@@ -42,9 +42,9 @@ echo "==> [2/7] 更新并安装 feeds"
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-echo "==> [3/7] 写入首次启动配置（IP / 中文 / 主题）"
-mkdir -p files/etc/uci-defaults
-cp "$SELF/files/etc/uci-defaults/zzzz-custom" files/etc/uci-defaults/zzzz-custom
+echo "==> [3/7] 写入自定义文件（IP / 中文 / 主题 / 版本标识）"
+mkdir -p files
+cp -rv "$SELF/files/." files/
 chmod 0755 files/etc/uci-defaults/zzzz-custom
 
 # 同时把 config_generate 里的默认 LAN IP 改掉，双保险
@@ -95,6 +95,12 @@ PY
 cat "$SELF/config.addon" >> .config
 
 echo "==> [5/7] make defconfig（自动解析并补全依赖）"
+# scripts/getver.sh 会优先读源码根目录的 version 文件；不写的话
+# /etc/os-release 的 BUILD_ID、openwrt_release 的 DISTRIB_REVISION
+# 仍会是 r0-<git hash>。这里复用自定义版本代号，让全机不再出现 hash。
+VC="$(sed -n 's/^CONFIG_VERSION_CODE="\(.*\)"$/\1/p' .config | head -n1)"
+printf '%s\n' "${VC:-r1}" > version
+echo "  REVISION -> $(cat version)"
 make defconfig
 
 echo "--- 关键包确认（应全部为 =y）---"

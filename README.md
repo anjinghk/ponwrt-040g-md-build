@@ -66,7 +66,29 @@
 
 ---
 
-## 五、使用方法
+## 五、固件版本号（无 git hash）
+
+主线默认编译出来是 `PonWrt SNAPSHOT r0-d9dd3a4 / LuCI Master (git-…)`，后面两段都是 git hash。本配置把它固定成：
+
+> **`PonWrt 2026.11 r1 / LuCI release`**
+
+LuCI「状态 → 概览 → 固件版本」显示上面这行；`ubus call system board`、`cat /etc/os-release` 里也不再有 hash。固件文件名同步变成 `ponwrt-2026.11-r1-airoha-an7581-nokia_xg-040g-md-ubi-squashfs-sysupgrade.itb`。
+
+| 位置 | 作用 |
+|---|---|
+| `config.addon` 的 `CONFIG_VERSIONOPT` 段 | `VERSION_NUMBER=2026.11`、`VERSION_CODE=r1`；`VERSION_FILENAMES` / `VERSION_CODE_FILENAMES` 让固件文件名自动带版本 |
+| `build.sh` 写源码根目录的 `version` 文件 | `scripts/getver.sh` 优先读它，覆盖 `REVISION`，清掉 `BUILD_ID` / `DISTRIB_REVISION` 里的 hash |
+| `files/usr/share/ucode/luci/version.uc` | 覆盖 LuCI 自带版本模块，把 `LuCI Master (git-…)` 改成 `LuCI release` |
+
+**以后想改**：只改 `config.addon` 里 `CONFIG_VERSION_NUMBER` 与 `CONFIG_VERSION_CODE` 两行（例如 `2026.12` / `r2`）再重编译即可。`version` 文件由 `build.sh` 自动跟着 `CONFIG_VERSION_CODE` 变，文件名和 `/etc/os-release` 同步更新。
+
+> 两个坑：① `CONFIG_VERSION_CODE` **不能留空**，留空会回退成 git hash；② 打开 `VERSIONOPT` 后 `VERSION_DIST` 的 Kconfig 默认值是 `ImmortalWrt`，所以 `CONFIG_VERSION_DIST="PonWrt"` 必须显式写，否则固件名会变成 `immortalwrt-` 开头。
+>
+> 若覆盖 `version.uc` 后 LuCI 出现异常，删掉 `files/usr/share/ucode/luci/version.uc` 重编即可回退。
+
+---
+
+## 六、使用方法
 
 ### 方式 A：一键脚本（推荐）
 
@@ -119,7 +141,7 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 
 ---
 
-## 六、需要留意的风险
+## 七、需要留意的风险
 
 1. **Vantage 兼容性**：官方标注支持 OpenWrt **25.12 / 24.10**，`Snapshots` 为「Untested」。PonWrt 是 ImmortalWrt master 的 SNAPSHOT（内核 6.18），能编译但没经过官方验证。若刷好后主题白屏，SSH 里执行
    `uci set luci.main.mediaurlbase=/luci-static/bootstrap; uci commit luci` 换回默认主题，或去掉 `CONFIG_PACKAGE_luci-theme-vantage` 重编。
@@ -131,12 +153,13 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 
 ---
 
-## 七、文件清单
+## 八、文件清单
 
 | 文件 | 用途 |
 |---|---|
-| `build.sh` | 一键编译脚本（引用同目录其它 3 个文件） |
+| `build.sh` | 一键编译脚本（feeds / config / files / defconfig / download / make） |
 | `feeds.addon` | 2 行第三方 feed（vantage、airoha） |
-| `config.addon` | 追加到 `.config` 的完整符号（插件、依赖、中文、IP） |
+| `config.addon` | 追加到 `.config` 的完整符号（插件、依赖、中文、IP、版本号） |
 | `files/etc/uci-defaults/zzzz-custom` | 首次开机设置 IP / 中文 / Vantage 主题 |
+| `files/usr/share/ucode/luci/version.uc` | 覆盖 LuCI 版本显示，去掉 git hash |
 | `.github/workflows/build.yml` | GitHub Actions 云编译 workflow |

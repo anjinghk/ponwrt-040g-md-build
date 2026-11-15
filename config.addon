@@ -52,3 +52,20 @@ CONFIG_PACKAGE_luci-i18n-autoreboot-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-natmap-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-airoha-npu-zh-cn=y
+
+# ---------- 自定义固件版本号（去掉 SNAPSHOT 与 git hash）----------
+# 打开 VERSIONOPT 后，Kconfig 里 VERSION_DIST 的默认值是 ImmortalWrt，
+# 必须显式写回 PonWrt，否则 os-release 与固件文件名都会变成 immortalwrt- 开头
+CONFIG_IMAGEOPT=y
+CONFIG_VERSIONOPT=y
+CONFIG_VERSION_DIST="PonWrt"
+# 版本号与代号：改这两行即可（例如 2026.12 / r2）
+CONFIG_VERSION_NUMBER="2026.11"
+CONFIG_VERSION_CODE="r1"
+# 让固件文件名自动带上版本号与代号，无需手动维护 EXTRA_IMAGE_NAME
+CONFIG_VERSION_FILENAMES=y
+CONFIG_VERSION_CODE_FILENAMES=y
+CONFIG_VERSION_HOME_URL="https://github.com/anjinghk/ponwrt-040g-md-build"
+CONFIG_VERSION_MANUFACTURER="PonWrt"
+CONFIG_VERSION_PRODUCT="XG-040G-MD"
+CONFIG_VERSION_HWREV="v1"
