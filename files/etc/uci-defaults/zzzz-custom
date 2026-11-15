@@ -23,4 +23,22 @@ uci commit luci
 rm -f /tmp/luci-indexcache.*
 rm -rf /tmp/luci-modulecache/
 
+# 5) 清掉系统标识文件里残留的 git hash
+#    VERSIONOPT 只覆盖 %V / %C，模板里的 %R 仍是 REVISION（r0-<hash>）。
+#    这些文件在 squashfs 上，写入会落到 overlay，属正常做法。
+VER_CODE="r1"
+[ -f /usr/lib/os-release ] && \
+    sed -i "s/^BUILD_ID=.*/BUILD_ID=\"${VER_CODE}\"/" /usr/lib/os-release
+[ -f /etc/openwrt_release ] && \
+    sed -i "s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='${VER_CODE}'/" /etc/openwrt_release
+[ -f /etc/build.version ] && printf '%s\n' "$VER_CODE" > /etc/build.version
+
+# 6) 覆盖 LuCI 版本模块，去掉 "LuCI Master (git-…)" 里的 hash
+#    不在编译期用 files/ overlay 覆盖，避免影响 base-files 安装脚本。
+mkdir -p /usr/share/ucode/luci
+printf "%s\n" "export const revision = 'release', branch = 'LuCI';" \
+    > /usr/share/ucode/luci/version.uc
+rm -f /tmp/luci-indexcache.*
+rm -rf /tmp/luci-modulecache/
+
 exit 0

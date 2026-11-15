@@ -79,7 +79,16 @@ jobs:
           cp -rv "$GITHUB_WORKSPACE"/files custom/
           chmod +x custom/build.sh custom/files/etc/uci-defaults/zzzz-custom
           echo "并行编译数 JOBS=$JOBS"
-          ./custom/build.sh .
+          if ! ./custom/build.sh .; then
+            echo "::error::编译失败，下面单独重跑 base-files 以打印真实报错"
+            echo "=== make -j1 V=s package/base-files/compile ==="
+            make -j1 V=s package/base-files/compile 2>&1 | tail -200 || true
+            echo "=== 版本相关配置 ==="
+            grep -E '^CONFIG_(IMAGEOPT|VERSION)' .config || true
+            echo "=== 源码根目录 version 文件（应不存在）==="
+            ls -la version version.date 2>/dev/null || echo "(无，正确)"
+            exit 1
+          fi
 
       - name: 收集固件
         run: |

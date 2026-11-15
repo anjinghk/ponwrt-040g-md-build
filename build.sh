@@ -95,12 +95,11 @@ PY
 cat "$SELF/config.addon" >> .config
 
 echo "==> [5/7] make defconfig（自动解析并补全依赖）"
-# scripts/getver.sh 会优先读源码根目录的 version 文件；不写的话
-# /etc/os-release 的 BUILD_ID、openwrt_release 的 DISTRIB_REVISION
-# 仍会是 r0-<git hash>。这里复用自定义版本代号，让全机不再出现 hash。
-VC="$(sed -n 's/^CONFIG_VERSION_CODE="\(.*\)"$/\1/p' .config | head -n1)"
-printf '%s\n' "${VC:-r1}" > version
-echo "  REVISION -> $(cat version)"
+# 注意：绝不要在源码根目录写 version 文件。scripts/getver.sh 会优先读它，
+# 从而改写全局 REVISION，连带影响 base-files 的 stamp 与包版本计算 ——
+# 这正是上一轮 package/base-files 编译失败的原因。
+# 版本号只通过 .config 的 VERSIONOPT 段设置；%R 残留的 git hash 由
+# files/etc/uci-defaults/zzzz-custom 在首次开机时清理。
 make defconfig
 
 echo "--- 关键包确认（应全部为 =y）---"

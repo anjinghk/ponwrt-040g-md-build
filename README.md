@@ -68,23 +68,24 @@
 
 ## 五、固件版本号（无 git hash）
 
-主线默认编译出来是 `PonWrt SNAPSHOT r0-d9dd3a4 / LuCI Master (git-…)`，后面两段都是 git hash。本配置把它固定成：
+主线默认编译出来是 `PonWrt SNAPSHOT r0-d9dd3a4 / LuCI Master (git-…)`。本配置把它固定成：
 
 > **`PonWrt 2026.11 r1 / LuCI release`**
 
-LuCI「状态 → 概览 → 固件版本」显示上面这行；`ubus call system board`、`cat /etc/os-release` 里也不再有 hash。固件文件名同步变成 `ponwrt-2026.11-r1-airoha-an7581-nokia_xg-040g-md-ubi-squashfs-sysupgrade.itb`。
+LuCI「状态 → 概览 → 固件版本」显示 `OPENWRT_RELEASE`（模板是 `%D %V %C`，不含 `%R`），所以**只靠 `.config` 就是干净的**；固件文件名同步变成 `ponwrt-2026.11-r1-airoha-an7581-nokia_xg-040g-md-ubi-squashfs-sysupgrade.itb`。
 
 | 位置 | 作用 |
 |---|---|
-| `config.addon` 的 `CONFIG_VERSIONOPT` 段 | `VERSION_NUMBER=2026.11`、`VERSION_CODE=r1`；`VERSION_FILENAMES` / `VERSION_CODE_FILENAMES` 让固件文件名自动带版本 |
-| `build.sh` 写源码根目录的 `version` 文件 | `scripts/getver.sh` 优先读它，覆盖 `REVISION`，清掉 `BUILD_ID` / `DISTRIB_REVISION` 里的 hash |
-| `files/usr/share/ucode/luci/version.uc` | 覆盖 LuCI 自带版本模块，把 `LuCI Master (git-…)` 改成 `LuCI release` |
+| `config.addon` 的 `CONFIG_VERSIONOPT` 段 | `VERSION_NUMBER=2026.11`、`VERSION_CODE=r1`；`VERSION_FILENAMES` / `VERSION_CODE_FILENAMES` 让文件名自动带版本 |
+| `files/etc/uci-defaults/zzzz-custom` 第 5、6 段 | 首次开机清掉 `BUILD_ID` / `DISTRIB_REVISION` / `/etc/build.version` 里 `%R` 残留的 hash，并覆盖 LuCI 版本模块去掉 `git-…` |
 
-**以后想改**：只改 `config.addon` 里 `CONFIG_VERSION_NUMBER` 与 `CONFIG_VERSION_CODE` 两行（例如 `2026.12` / `r2`）再重编译即可。`version` 文件由 `build.sh` 自动跟着 `CONFIG_VERSION_CODE` 变，文件名和 `/etc/os-release` 同步更新。
+**以后想改**：改 `config.addon` 的 `CONFIG_VERSION_NUMBER` / `CONFIG_VERSION_CODE`（例如 `2026.12` / `r2`），同时把 `zzzz-custom` 里的 `VER_CODE` 改成一致，再重编译即可。
 
-> 两个坑：① `CONFIG_VERSION_CODE` **不能留空**，留空会回退成 git hash；② 打开 `VERSIONOPT` 后 `VERSION_DIST` 的 Kconfig 默认值是 `ImmortalWrt`，所以 `CONFIG_VERSION_DIST="PonWrt"` 必须显式写，否则固件名会变成 `immortalwrt-` 开头。
+> **⚠️ 不要在源码根目录写 `version` 文件**（早期版本这么做过，已撤销）。`scripts/getver.sh` 会优先读它并改写全局 `REVISION`，连带影响 base-files 的 stamp 与包版本计算，实测会导致 `package/base-files` 编译失败、整个固件编不出来。同理，也**不要用 `files/` overlay 覆盖 `/usr/share/ucode/luci/version.uc`**（编译期多出 `usr/` 目录会改变 base-files 的安装输入）；这两件事都改由首次开机脚本在运行时处理。
 >
-> 若覆盖 `version.uc` 后 LuCI 出现异常，删掉 `files/usr/share/ucode/luci/version.uc` 重编即可回退。
+> 另两个坑：① `CONFIG_VERSION_CODE` **不能留空**，留空会回退成 git hash；② 打开 `VERSIONOPT` 后 `VERSION_DIST` 的 Kconfig 默认值是 `ImmortalWrt`，所以 `CONFIG_VERSION_DIST="PonWrt"` 必须显式写，否则固件名会变成 `immortalwrt-` 开头。
+>
+> 局限：uci-defaults 只在首次开机 / 恢复出厂执行一次。若以后用 sysupgrade「保留配置」升级，新固件里 `%R` 的 hash 会回来（页面主显示仍干净）；想继续干净就重刷不保留配置，或 SSH 手动跑一遍那几行 sed。
 
 ---
 
