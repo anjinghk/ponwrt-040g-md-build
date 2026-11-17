@@ -10,7 +10,7 @@
 
 ## 一、插件去重与改名结果
 
-你给的清单里有 1 个重复、1 个笔误，处理后是 **1 个主题 + 6 个应用**：
+最初清单里有 1 个重复、1 个笔误，处理后是 **1 个主题 + 6 个应用**；后续又追加了 WOL 与 IPTV 两个应用，现为 **1 个主题 + 8 个应用**（标"追加"）：
 
 | # | 你写的 | 处理结果 | 来源 |
 |---|---|---|---|
@@ -21,8 +21,10 @@
 | 5 | `luci-app-ttyd` | 保留 | ImmortalWrt `luci` feed |
 | 6 | `luci-app-natmapt` | **改为 `luci-app-natmap`**（不带尾部 t，原名字的包不存在） | ImmortalWrt `luci` feed |
 | 7 | `luci-app-airoha-npu` | 保留 | 第三方 feed `naoki66/luci-app-airoha` |
+| 8 | `luci-app-wol` | **追加**：网络唤醒（你说的"wol push"，社区无此同名包，确认用官方 WOL） | ImmortalWrt `luci` feed |
+| 9 | `luci-app-iptv` | **追加**：IPTV 桥接，支持联通单播/组播 VLAN 分离（如 3300/4075） | PonWrt 自带 feed `pon_userspace` |
 
-其余 4 个应用（package-manager / upnp / autoreboot / ttyd / natmap）在 PonWrt 自带的 `luci` 与 `packages` feed 里都有，**不需要另外加源**；只有主题和 airoha-npu 需要加 2 个 `src-git` 源（见 `feeds.addon`）。
+其余应用（package-manager / upnp / autoreboot / ttyd / natmap / wol）在 PonWrt 自带的 `luci` 与 `packages` feed 里都有，**不需要另外加源**；IPTV 来自主线 `feeds.conf.default` 里已有的 `pon_userspace` 源；只有主题和 airoha-npu 需要加 2 个 `src-git` 源（见 `feeds.addon`）。
 
 ---
 
@@ -39,6 +41,8 @@
 | `luci-app-ttyd` | **`ttyd`** | Web 终端本体 |
 | `luci-app-natmap` | **`natmap`** | NATMAP 本体 |
 | `luci-app-airoha-npu` | **`kmod-br-netfilter`**、`CONFIG_KERNEL_DEVMEM`、busybox `devmem`、`rpcd` | 读 AN7581 NPU/PPE 寄存器必须有 `/dev/mem` + `devmem`；默认 config 里 `kmod-br-netfilter` 是关的，已补 |
+| `luci-app-wol`（追加） | **`etherwake`** | 发送魔术包的本体，已补；官方默认关 |
+| `luci-app-iptv`（追加） | **`firewall4`**、**`kmod-nft-bridge`**、`luci-base` | 官方 config 已启用；`CONFIG_VLAN_8021Q` / `CONFIG_IP_MULTICAST` / `CONFIG_BRIDGE_IGMP_SNOOPING` 已编进内核，无需额外 kmod。不依赖 igmpproxy/udpxy |
 
 另外 `rpcd`、`rpcd-mod-ucode`、`rpcd-mod-file` 等官方配置里已经带上了。
 
@@ -46,9 +50,10 @@
 
 ## 三、中文怎么保证
 
-- 7 个插件**全部有简体中文翻译**（`po/zh_Hans`），共启用 10 个 `luci-i18n-*-zh-cn` 包：
+- 插件**全部有简体中文翻译**（`po/zh_Hans`），共启用 12 个 `luci-i18n-*-zh-cn` 包：
   `base`、`firewall`、`package-manager`、`pon`（这 4 个官方 config 已带）＋
-  `upnp`、`autoreboot`、`ttyd`、`natmap`、`airoha-npu`、`vantage-theme`（新增）。
+  `upnp`、`autoreboot`、`ttyd`、`natmap`、`airoha-npu`、`vantage-theme` ＋
+  `wol`、`iptv`（后两个为追加）。
 - `CONFIG_LUCI_LANG_zh_Hans=y` 让 LuCI 构建系统生成中文语言包，官方 config 已开。
 - 首次启动脚本 `zzzz-custom` 把 `luci.main.lang` 设为 `zh_cn`，并把默认主题设为 Vantage。
   若少数页面仍显示英文，到 **系统 → 系统 → 语言和界面** 选「简体中文」即可（个别新版本 LuCI 语言值写成 `zh-cn`，把脚本里 `zh_cn` 改成 `zh-cn` 即可）。
@@ -154,6 +159,29 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 
 ---
 
+## 七·补、IPTV 与网络唤醒用法（本次追加）
+
+### IPTV（联通单播 3300 / 组播 4075）
+
+LuCI 里新增「服务 → IPTV」页面（中文）。它把上联 `pon0` 上的 VLAN 子接口和**你指定的一个 LAN 口**桥成 `br-iptv`，应用后该 LAN 口会从 `br-lan` 移出、专供机顶盒：
+
+| 字段 | 填写 | 说明 |
+|---|---|---|
+| 启用 | 勾选 | — |
+| IPTV LAN 口 | 接机顶盒的那个口（如 `lan3`） | 该口将专用，不能再当普通 LAN |
+| 上联设备 | `pon0`（默认） | 承载运营商 VLAN 的设备 |
+| 业务 VLAN | **3300** | 单播：DHCP、鉴权、点播，双向 |
+| 组播 VLAN | **4075** | 直播组播，仅下行 |
+| IGMP 上行 VLAN | 留空 | 留空时走组播 VLAN 4075；若当地运营商 IGMP 走别的 VLAN 再单独填 |
+
+插件靠 nftables bridge 规则严格控制：组播只进不出、业务 VLAN 双向、禁止两 VLAN 互串，不需要 `igmpproxy` / `udpxy`。若刷好后 IPTV 不通，先确认机顶盒接的口与页面所选一致、VLAN 号与当地运营商一致。
+
+### 网络唤醒（WOL）
+
+LuCI「服务 → 网络唤醒」，添加设备填名称 + MAC 地址，接口选 `br-lan`，点唤醒即发送魔术包。前提是**被唤醒设备**的网卡/BIOS 已开启 WoL、关机后网卡仍供电；路由器与它在同一二层网络。桥梁由 `etherwake` 提供。
+
+---
+
 ## 八、文件清单
 
 | 文件 | 用途 |
@@ -161,6 +189,7 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 | `build.sh` | 一键编译脚本（feeds / config / files / defconfig / download / make） |
 | `feeds.addon` | 2 行第三方 feed（vantage、airoha） |
 | `config.addon` | 追加到 `.config` 的完整符号（插件、依赖、中文、IP、版本号） |
-| `files/etc/uci-defaults/zzzz-custom` | 首次开机设置 IP / 中文 / Vantage 主题 |
-| `files/usr/share/ucode/luci/version.uc` | 覆盖 LuCI 版本显示，去掉 git hash |
-| `.github/workflows/build.yml` | GitHub Actions 云编译 workflow |
+| `files/etc/uci-defaults/zzzz-custom` | 首次开机设置 IP / 中文 / Vantage 主题 / 运行时去 git hash |
+| `.github/workflows/build.yml` | GitHub Actions 云编译 workflow（含失败时打印详细日志兜底） |
+
+> 注：`version.uc` 编译期 overlay 已在上一轮修复中删除，改由 `zzzz-custom` 在首次开机时运行时生成，避免再次触发 `package/base-files` 编译失败。
