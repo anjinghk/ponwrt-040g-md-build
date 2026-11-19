@@ -103,7 +103,7 @@ echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 make defconfig
 
 echo "--- 关键包确认（应全部为 =y）---"
-grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|natmap|airoha-npu|package-manager)|miniupnpd|ttyd|natmap|kmod-br-netfilter)=y' .config || true
+grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|wol|airoha-npu|package-manager)|miniupnpd|ttyd|etherwake|kmod-br-netfilter)=y' .config || true
 
 echo "==> [6/7] 下载源码包"
 make -j"$JOBS" download
