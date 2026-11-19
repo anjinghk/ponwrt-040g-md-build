@@ -15,25 +15,25 @@ uci -q set luci.main.lang='zh_cn'
 uci -q set luci.languages.zh_cn='中文 (Chinese)'
 uci commit luci
 
-# 3) 默认主题设为 Vantage
+# 3) 系统时区设为北京时间（UTC+8）
+#    timezone 用 POSIX 格式：UTC+8 写成 CST-8；zonename 用 IANA 名称
+uci -q set system.@system[0].zonename='Asia/Shanghai'
+uci -q set system.@system[0].timezone='CST-8'
+uci commit system
+
+# 4) 默认主题设为 Vantage
 uci -q set luci.main.mediaurlbase='/luci-static/vantage'
 uci commit luci
 
-# 4) 清 LuCI 缓存，让菜单与翻译立即生效
+# 5) 清 LuCI 缓存，让菜单与翻译立即生效
 rm -f /tmp/luci-indexcache.*
 rm -rf /tmp/luci-modulecache/
 
-# 5) 清掉系统标识文件里残留的 git hash
-#    VERSIONOPT 只覆盖 %V / %C，模板里的 %R 仍是 REVISION（r0-<hash>）。
-#    这些文件在 squashfs 上，写入会落到 overlay，属正常做法。
-VER_CODE="r1"
-[ -f /usr/lib/os-release ] && \
-    sed -i "s/^BUILD_ID=.*/BUILD_ID=\"${VER_CODE}\"/" /usr/lib/os-release
-[ -f /etc/openwrt_release ] && \
-    sed -i "s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='${VER_CODE}'/" /etc/openwrt_release
-[ -f /etc/build.version ] && printf '%s\n' "$VER_CODE" > /etc/build.version
+# 6) 版本号已在编译期真实写入（build.sh 把 base-files 模板里的 %R 换成代号，
+#    固件里 BUILD_ID / DISTRIB_REVISION 直接就是 rN，无 git hash），
+#    因此这里不再写死 r1 去覆盖它——恢复出厂也不会退回 hash。
 
-# 6) 覆盖 LuCI 版本模块，去掉 "LuCI Master (git-…)" 里的 hash
+# 7) 覆盖 LuCI 版本模块，去掉 "LuCI Master (git-…)" 里的 hash
 #    不在编译期用 files/ overlay 覆盖，避免影响 base-files 安装脚本。
 mkdir -p /usr/share/ucode/luci
 printf "%s\n" "export const revision = 'release', branch = 'LuCI';" \

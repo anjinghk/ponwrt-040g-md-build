@@ -73,6 +73,10 @@ jobs:
           JOBS: ${{ github.event.inputs.jobs || '2' }}
           V: ${{ github.event.inputs.verbose == 'true' && 's' || '' }}
         run: |
+          # 动态版本号：主版本用北京时间日期，代号用 Actions 递增序号
+          export FW_NUMBER="$(TZ=Asia/Shanghai date +%Y.%m.%d)"
+          export FW_CODE="r${{ github.run_number }}"
+          echo "==> 固件版本：PonWrt ${FW_NUMBER} ${FW_CODE}"
           mkdir -p custom
           cp -v "$GITHUB_WORKSPACE"/build.sh "$GITHUB_WORKSPACE"/config.addon \
                 "$GITHUB_WORKSPACE"/feeds.addon custom/
