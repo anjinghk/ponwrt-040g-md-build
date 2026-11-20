@@ -23,7 +23,7 @@ on:
       - '.github/workflows/build.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ponwrt-040g-md-build
@@ -108,6 +108,35 @@ jobs:
           path: firmware/
           retention-days: 30
           if-no-files-found: error
+
+      - name: 生成固件版本 tag
+        run: |
+          FW_DATE="$(TZ=Asia/Shanghai date +%Y.%m.%d)"
+          echo "FW_TAG=firmware-r${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "FW_VER=${FW_DATE}" >> "$GITHUB_ENV"
+
+      - name: 发布固件到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.FW_TAG }}
+          name: PonWrt XG-040G-MD 固件 ${{ env.FW_VER }} r${{ github.run_number }}
+          body: |
+            **Nokia XG-040G-MD（AN7581）PonWrt 固件**，由 GitHub Actions 自动编译发布。
+
+            版本：PonWrt ${{ env.FW_VER }} r${{ github.run_number }}
+            对应 tag：${{ env.FW_TAG }}
+
+            ## 固件特性
+            - 登录地址 `http://192.168.100.1`，简体中文，Vantage 主题
+            - 插件：UPnP、Autoreboot、ttyd、airoha-npu、WOL（保持精简，不含 natmap/iptv）
+            - 时区：Asia/Shanghai（CST-8）
+
+            ## 刷机说明
+            - UBI 设备用 `*-squashfs-sysupgrade.itb` 刷机，`*-initramfs-recovery.itb` 为救砖 recovery
+            - 刷机前备份原厂固件和校准数据（bosa/ri），有变砖风险
+            - 校验文件：`sha256sums` / `sha256sums.txt`
+          files: firmware/*
+          fail_on_unmatched_files: true
 
       - name: 写入运行摘要
         run: |
