@@ -126,6 +126,43 @@ for tpl in package/base-files/files/etc/openwrt_release \
     [ -f "$tpl" ] && sed -i "s/%R/${FW_CODE}/g" "$tpl"
 done
 
+# ---------- apk 源白名单：只保留官方 6 条标准源 ----------
+# 官方下载站有目录的标准源：targets/base/packages/luci/routing/telephony
+# 其中 targets 由内核自动带、base 由 PER_FEED_REPO 自动生成，都不在 feeds.conf 里；
+# feeds.conf 里属于标准源的只有这 4 个：packages/luci/routing/telephony。
+# 其它任何 feed（video / pon_drivers / pon_userspace / vantage / airoha 以及
+# 以后新增的第三方源）一律 CONFIG_FEED_xxx=n：
+#   - 只关掉 apk/opkg 在线源列表里的那一行（这些 feed 在官方站是 404）
+#   - 不影响该 feed 里的包编译进固件（那由 CONFIG_PACKAGE_* 控制）
+# 动态读取 feeds.conf，所以以后加插件只要加 feeds.addon 就会自动被过滤。
+echo "==> [4.5/7] 过滤 apk 源：只保留标准 feed，其余自动关闭在线源"
+STANDARD_FEEDS="packages luci routing telephony"
+# 先把 .config 里所有已存在的 CONFIG_FEED_* 行移除（含注释掉的），避免重复定义
+python3 - "$SRC/feeds.conf" "$STANDARD_FEEDS" <<'PY'
+import sys, re
+feeds_conf, standard = sys.argv[1], sys.argv[2].split()
+# 从 feeds.conf 读取全部 feed 名
+feed_names = []
+with open(feeds_conf, encoding='utf-8') as f:
+    for line in f:
+        m = re.match(r'^\s*src-(?:git|git-src|svn|hg|bzr|link|cvs)\s+(\S+)', line)
+        if m:
+            feed_names.append(m.group(1))
+# 清掉 .config 里现有的 CONFIG_FEED_* 定义
+lines = open('.config', encoding='utf-8').read().splitlines()
+lines = [l for l in lines if not re.match(r'^#?\s*CONFIG_FEED_\w+=', l)]
+# 非标准 feed 追加 =n
+disabled = [f for f in feed_names if f not in standard]
+# 去重保序
+disabled = list(dict.fromkeys(disabled))
+lines.append('# ---- apk 源白名单：仅 packages/luci/routing/telephony 保留在线源 ----')
+for f in disabled:
+    lines.append('CONFIG_FEED_%s=n' % f)
+open('.config', 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
+print("  保留在线源的 feed：%s（+ targets/base 自动）" % ', '.join(standard))
+print("  已关闭在线源的 feed：%s" % (', '.join(disabled) if disabled else '（无）'))
+PY
+
 echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 # 注意：绝不要在源码根目录写 version 文件。scripts/getver.sh 会优先读它，
 # 从而改写全局 REVISION，连带影响 base-files 的 stamp 与包版本计算 ——
