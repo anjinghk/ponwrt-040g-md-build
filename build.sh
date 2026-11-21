@@ -42,6 +42,35 @@ echo "==> [2/7] 更新并安装 feeds"
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+# ---------- iStore 应用商店（参考 zk6685/zk-vikingowrt 的做法）----------
+# 不走 feed：只把 iStore 相关 4 个包的源码拷进本地 package/，避免
+# feeds install -a 把 small-package 里几百个无关包全部 link 进来。
+# 4 个包：luci-app-store（界面本体）、luci-lib-taskd、luci-lib-xterm、taskd（依赖）。
+# install -d y 时由 defconfig 依据 LUCI_DEPENDS 自动解析其余标准依赖。
+echo "==> [2.5/7] 集成 iStore 应用商店（只取 4 个包源码）"
+ISTORE_PKGS="luci-app-store luci-lib-taskd luci-lib-xterm taskd"
+ISTORE_TMP="$SRC/.istore-src"
+# 先删 feeds 里可能同名的包，避免与本地 package/ 下的包重复定义
+for NAME in $ISTORE_PKGS; do
+    find feeds/luci/ feeds/packages/ -maxdepth 4 -type d -iname "*$NAME*" -exec rm -rf {} \; 2>/dev/null || true
+done
+rm -rf "$ISTORE_TMP"
+git clone --depth=1 --single-branch --branch main https://github.com/kenzok8/small-package.git "$ISTORE_TMP"
+for NAME in $ISTORE_PKGS; do
+    if [ -d "$ISTORE_TMP/$NAME" ]; then
+        rm -rf "package/$NAME"
+        cp -rf "$ISTORE_TMP/$NAME" "package/$NAME"
+        echo "  已集成：$NAME"
+    else
+        echo "  错误：small-package 中未找到 $NAME" >&2
+        rm -rf "$ISTORE_TMP"
+        exit 1
+    fi
+done
+rm -rf "$ISTORE_TMP"
+# luci-compat 是 iStore（Lua 应用）在 ImmortalWrt master 上的运行兼容层
+echo "  iStore 需要 luci-compat（Lua 兼容层），由 config.addon 选中"
+
 echo "==> [3/7] 写入自定义文件（IP / 中文 / 主题 / 版本标识）"
 mkdir -p files
 cp -rv "$SELF/files/." files/
@@ -63,6 +92,56 @@ s, t2 = re.subn(r"set system\.@system\[-1\]\.zonename='UTC'",
                 "set system.@system[-1].zonename='Asia/Shanghai'", s)
 print("  config_generate 默认时区 -> CST-8 / Asia/Shanghai（timezone %d 处, zonename %d 处）" % (t1, t2))
 open(p, 'w', encoding='utf-8').write(s)
+PY
+
+# ---------- 修复 luci-app-upnp 两处上游问题（编译期对 feeds 源码打补丁）----------
+# 说明：不整文件覆盖 files/，因为 ponwrt 的 luci 版本可能与上游 master 不同；
+#       这里只做精准行级替换，匹配不到会告警，便于发现版本差异。
+echo "==> [3.5/7] 修复 luci-app-upnp（counter 正则 / description XSS）"
+python3 - "$SRC" <<'PY'
+import sys, os, glob, re
+src = sys.argv[1]
+
+# 修复 1：luci.upnp 正则跳过 nftables 的 counter packets/bytes
+# miniupnpd 2.3.11 起在 DNAT 规则插入 "counter packets N bytes N"，2022 年写死的
+# 正则要求 dport 后紧跟 dnat，导致 LuCI 活动映射列表空白（上游 openwrt/luci#9214，
+# PR #9200/#9269 至今未合并）。允许 dport 与 dnat 之间存在任意文本即可兼容新旧格式。
+old_re = ' th dport ([0-9]+) dnat ip to '
+new_re = ' th dport ([0-9]+) .* dnat ip to '
+nft_files = [p for p in glob.glob(os.path.join(src, 'feeds', '**', 'luci.upnp'), recursive=True)
+             if os.path.isfile(p)]
+patched = 0
+for p in nft_files:
+    s = open(p, encoding='utf-8').read()
+    if old_re in s:
+        open(p, 'w', encoding='utf-8').write(s.replace(old_re, new_re))
+        patched += 1
+        print("  [counter 正则] 已修复：%s" % p)
+    elif new_re in s:
+        print("  [counter 正则] 已是修复版：%s" % p)
+    else:
+        print("  警告：[counter 正则] 未匹配，请人工核对 luci 版本：%s" % p)
+if not nft_files:
+    print("  警告：未找到 luci.upnp，counter 正则修复未生效")
+
+# 修复 2：upnp.js 初次渲染转义 description（CVE-2026-61875 漏补，issue #9203）
+# s.render 首次渲染把 rule.descr 当裸字符串交给 innerHTML；poll_status 已用 %h，
+# 这里补齐首次渲染路径。只匹配后面紧跟 ", E(" 的裸 rule.descr，已转义的不会命中。
+js_files = [p for p in glob.glob(os.path.join(src, 'feeds', '**', 'upnp.js'), recursive=True)
+            if os.path.isfile(p) and 'luci-app-upnp' in p]
+pat = re.compile(r'([,{}]\s*)rule\.descr(\s*,\s*E\()')
+patched2 = 0
+for p in js_files:
+    s = open(p, encoding='utf-8').read()
+    s2, n = pat.subn(lambda m: m.group(1) + "'%h'.format(rule.descr)" + m.group(2), s)
+    if n:
+        open(p, 'w', encoding='utf-8').write(s2)
+        patched2 += 1
+        print("  [XSS 转义] 已修复 %d 处：%s" % (n, p))
+    else:
+        print("  [XSS 转义] 无需修改或已修复：%s" % p)
+if not js_files:
+    print("  警告：未找到 luci-app-upnp 的 upnp.js，XSS 转义未生效")
 PY
 
 echo "==> [4/7] 生成 .config（基于 configs/an7581.config）"
@@ -172,7 +251,7 @@ echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 make defconfig
 
 echo "--- 关键包确认（应全部为 =y）---"
-grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|wol|airoha-npu|package-manager)|miniupnpd|ttyd|etherwake|kmod-br-netfilter)=y' .config || true
+grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|wol|airoha-npu|omcproxy|package-manager|store)|miniupnpd|omcproxy|ttyd|etherwake|kmod-br-netfilter|luci-lib-taskd|luci-lib-xterm|taskd|luci-compat)=y' .config || true
 
 echo "==> [6/7] 下载源码包"
 make -j"$JOBS" download
