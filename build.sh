@@ -68,6 +68,16 @@ for NAME in $ISTORE_PKGS; do
     fi
 done
 rm -rf "$ISTORE_TMP"
+# 关键修复：kenzok8 的 luci-app-store Makefile 依赖 +mount-utils 与 +libuci-lua，
+# 但 PonWrt 精简源码树没有这两个包（util-linux/mount-utils 被移除；uci 未编 Lua 绑定）。
+# 若保留，make defconfig 会因依赖无法满足而静默把 CONFIG_PACKAGE_luci-app-store 设为 n，
+# 结果就是固件里装了 4 个依赖、唯独没有商店本体。iStore 本体运行并不需要这两者，去掉即可。
+STORE_MK="package/luci-app-store/Makefile"
+if [ -f "$STORE_MK" ]; then
+    sed -i 's/ +mount-utils//; s/ +libuci-lua//' "$STORE_MK"
+    echo "  修正依赖：去除 luci-app-store 的 +mount-utils / +libuci-lua（PonWrt 树中无此二包）"
+    grep -n 'LUCI_DEPENDS' "$STORE_MK" || true
+fi
 # luci-compat 是 iStore（Lua 应用）在 ImmortalWrt master 上的运行兼容层
 echo "  iStore 需要 luci-compat（Lua 兼容层），由 config.addon 选中"
 
@@ -250,8 +260,19 @@ echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 # files/etc/uci-defaults/zzzz-custom 在首次开机时清理。
 make defconfig
 
-echo "--- 关键包确认（应全部为 =y）---"
+echo "--- 关键包确认（缺任一即中止，避免白编数小时）---"
+REQUIRED="luci-theme-vantage luci-app-upnp luci-app-autoreboot luci-app-ttyd luci-app-wol luci-app-airoha-npu luci-app-omcproxy luci-app-package-manager luci-app-store miniupnpd omcproxy ttyd etherwake kmod-br-netfilter luci-lib-taskd luci-lib-xterm taskd luci-compat"
+MISSING=""
+for p in $REQUIRED; do
+    grep -q "^CONFIG_PACKAGE_${p}=y" .config || MISSING="$MISSING $p"
+done
 grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|wol|airoha-npu|omcproxy|package-manager|store)|miniupnpd|omcproxy|ttyd|etherwake|kmod-br-netfilter|luci-lib-taskd|luci-lib-xterm|taskd|luci-compat)=y' .config || true
+if [ -n "$MISSING" ]; then
+    echo "错误：以下关键包未被 defconfig 选中：$MISSING" >&2
+    echo "请检查依赖是否被精简源码树剔除。" >&2
+    exit 1
+fi
+echo "  全部关键包已选中 ✓"
 
 echo "==> [6/7] 下载源码包"
 make -j"$JOBS" download
