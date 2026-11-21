@@ -261,15 +261,20 @@ echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 make defconfig
 
 echo "--- 关键包确认（缺任一即中止，避免白编数小时）---"
-REQUIRED="luci-theme-vantage luci-app-upnp luci-app-autoreboot luci-app-ttyd luci-app-wol luci-app-airoha-npu luci-app-omcproxy luci-app-package-manager luci-app-store miniupnpd omcproxy ttyd etherwake kmod-br-netfilter luci-lib-taskd luci-lib-xterm taskd luci-compat"
+REQUIRED="luci-theme-vantage luci-app-upnp luci-app-autoreboot luci-app-ttyd luci-app-wol luci-app-airoha-npu luci-app-omcproxy luci-app-package-manager luci-app-store miniupnpd-nftables omcproxy ttyd etherwake kmod-br-netfilter luci-lib-taskd luci-lib-xterm taskd luci-compat"
 MISSING=""
 for p in $REQUIRED; do
     grep -q "^CONFIG_PACKAGE_${p}=y" .config || MISSING="$MISSING $p"
 done
-grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|wol|airoha-npu|omcproxy|package-manager|store)|miniupnpd|omcproxy|ttyd|etherwake|kmod-br-netfilter|luci-lib-taskd|luci-lib-xterm|taskd|luci-compat)=y' .config || true
+grep -E '^CONFIG_PACKAGE_(luci-theme-vantage|luci-app-(upnp|autoreboot|ttyd|wol|airoha-npu|omcproxy|package-manager|store)|miniupnpd-nftables|omcproxy|ttyd|etherwake|kmod-br-netfilter|luci-lib-taskd|luci-lib-xterm|taskd|luci-compat)=y' .config || true
+# 诊断：无论成败，dump 出 iStore 相关符号的真实状态（含 "is not set"）
+echo "  --- iStore 符号诊断 ---"
+grep -iE "luci-app-store|luci-lib-taskd|luci-lib-xterm|^CONFIG_PACKAGE_taskd|CONFIG_PACKAGE_miniupnpd" .config || echo "  (以上符号在 .config 中完全缺失)"
+echo "  --- Kconfig 是否收录 luci-app-store 符号 ---"
+[ -f tmp/.config-package.in ] && grep -c "PACKAGE_luci-app-store" tmp/.config-package.in || echo "  无 .config-package.in"
 if [ -n "$MISSING" ]; then
     echo "错误：以下关键包未被 defconfig 选中：$MISSING" >&2
-    echo "请检查依赖是否被精简源码树剔除。" >&2
+    echo "请检查上方诊断：符号是否进入 .config-package.in / 依赖是否被精简源码树剔除。" >&2
     exit 1
 fi
 echo "  全部关键包已选中 ✓"
