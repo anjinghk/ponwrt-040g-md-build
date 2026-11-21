@@ -74,9 +74,16 @@ rm -rf "$ISTORE_TMP"
 # 结果就是固件里装了 4 个依赖、唯独没有商店本体。iStore 本体运行并不需要这两者，去掉即可。
 STORE_MK="package/luci-app-store/Makefile"
 if [ -f "$STORE_MK" ]; then
-    sed -i 's/ +mount-utils//; s/ +libuci-lua//' "$STORE_MK"
-    echo "  修正依赖：去除 luci-app-store 的 +mount-utils / +libuci-lua（PonWrt 树中无此二包）"
-    grep -n 'LUCI_DEPENDS' "$STORE_MK" || true
+    # kenzok8 版 Makefile 带 +mount-utils / +libuci-lua / LUCI_EXTRA_DEPENDS 等
+    # 依赖 PonWrt 精简树无法满足或 luci.mk 不支持，导致 defconfig 静默剔除本体。
+    # iStore 只是个 LuCI 界面，运行时依赖（curl/tar/taskd/luci-lib-taskd）均已随
+    # config.addon 显式选中，这里清空它的构建期依赖，确保本体一定被选中编入。
+    sed -i \
+      -e 's/^LUCI_DEPENDS:=.*/LUCI_DEPENDS:=+luci-lib-taskd/' \
+      -e '/^LUCI_EXTRA_DEPENDS:=/d' \
+      "$STORE_MK"
+    echo "  修正依赖：luci-app-store 仅保留 +luci-lib-taskd，删除 LUCI_EXTRA_DEPENDS"
+    grep -nE 'LUCI_DEPENDS|LUCI_EXTRA' "$STORE_MK" || true
 fi
 # luci-compat 是 iStore（Lua 应用）在 ImmortalWrt master 上的运行兼容层
 echo "  iStore 需要 luci-compat（Lua 兼容层），由 config.addon 选中"
@@ -261,7 +268,7 @@ echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 make defconfig
 
 echo "--- 关键包确认（缺任一即中止，避免白编数小时）---"
-REQUIRED="luci-theme-vantage luci-app-upnp luci-app-autoreboot luci-app-ttyd luci-app-wol luci-app-airoha-npu luci-app-omcproxy luci-app-package-manager luci-app-store miniupnpd-nftables omcproxy ttyd etherwake kmod-br-netfilter luci-lib-taskd luci-lib-xterm taskd luci-compat"
+REQUIRED="luci-theme-vantage luci-app-upnp luci-app-autoreboot luci-app-ttyd luci-app-wol luci-app-airoha-npu luci-app-omcproxy luci-app-package-manager luci-app-store miniupnpd-nftables omcproxy ttyd etherwake curl kmod-br-netfilter luci-lib-taskd luci-lib-xterm taskd luci-compat"
 MISSING=""
 for p in $REQUIRED; do
     grep -q "^CONFIG_PACKAGE_${p}=y" .config || MISSING="$MISSING $p"
