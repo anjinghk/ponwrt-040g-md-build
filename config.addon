@@ -66,3 +66,5 @@ CONFIG_VERSION_HOME_URL="https://github.com/anjinghk/ponwrt-040g-md-build"
 CONFIG_VERSION_MANUFACTURER="PonWrt"
 CONFIG_VERSION_PRODUCT="XG-040G-MD"
 CONFIG_VERSION_HWREV="v1"
+# 注：apk 源的白名单过滤由 build.sh 自动处理（非标准 feed 自动 FEED_*=n），
+#     这里不再硬编码，避免以后加插件时两处维护。
