@@ -38,6 +38,8 @@ CONFIG_PACKAGE_luci-compat=y
 CONFIG_PACKAGE_miniupnpd-nftables=y
 # luci-app-omcproxy 的本体（IGMPv3/MLDv2 组播代理）
 CONFIG_PACKAGE_omcproxy=y
+# iStore 装插件时下载用（PonWrt defconfig 默认 is not set，这里显式打开）
+CONFIG_PACKAGE_curl=y
 # luci-app-ttyd 的本体
 CONFIG_PACKAGE_ttyd=y
 # luci-app-wol 的本体（发送魔术包）
