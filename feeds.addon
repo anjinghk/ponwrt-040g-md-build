@@ -1,4 +1,6 @@
 # 追加到 feeds.conf（PonWrt 自带 7 个官方源保持不变，只加下面 2 个）
+# 注：iStore 不走 feed，而是由 build.sh 只挑 iStore 相关 4 个包源码拷进本地 package/，
+#     避免 feeds install -a 把 small-package 里几百个包都 link 进来。
 # luci-theme-vantage 主题（含中文语言包 luci-i18n-vantage-theme-zh-cn）
 src-git vantage https://github.com/anothaDev/luci-theme-vantage.git
 # luci-app-airoha-npu（含中文语言包 luci-i18n-airoha-npu-zh-cn）
