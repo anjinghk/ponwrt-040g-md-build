@@ -2,7 +2,7 @@
 
 主线：[pbs05/ponwrt](https://github.com/pbs05/ponwrt)（基于 ImmortalWrt，Airoha AN7581/AN7583 PON 设备，包管理器为 **apk**）。
 
-同一套配置编译**两台机型**，各自发布独立 Release：
+同一套配置编译**两台机型**，各自发布独立 Release。两台**底层均用 pbs05/ponwrt 上游原样**（机型定义 / DTS / 分区 / 引导全部照上游），**上层注入同样的定制**（简体中文 / Vantage / 全套插件 / `192.168.100.1`）：
 
 | 机型 | 平台 | 闪存 | profile | DEVICE 环境变量 | Release tag |
 |---|---|---|---|---|---|
@@ -10,7 +10,7 @@
 | **FiberHome HG5382A** | AN7581 | 并行 NAND | `fiberhome_hg5382a` | `fiberhome_hg5382a` | `hg5382a-rN` |
 
 两台均：管理地址 **192.168.100.1**、界面 **简体中文**、主题 **Vantage**、全套插件（含 iStore/UPnP/omcproxy）。
-差异：**MD 打 SkyHigh 闪存补丁**（SPI NAND）；HG5382A 是并行 NAND，**不打**该补丁，刷机流程也不同（见第七节）。
+差异：**MD 打 SkyHigh 闪存补丁**（SPI NAND）；HG5382A 是并行 NAND，**不打**该补丁，刷机流程也不同（见第七节）。华邦闪存批次可能导致免拆刷机后无法启动的风险已知晓，按此方式编译，不因此做额外改动。
 
 > 切换机型只需设环境变量 `DEVICE`，其余配置、插件、主题全部共用。若你的机器是 AN7583 的 **XG-040G-MF**，请把 `configs/an7581.config` 换成 `configs/an7583.config`、`DEVICE` 换成 `nokia_xg-040g-mf-ubi`。
 

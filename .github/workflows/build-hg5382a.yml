@@ -1,10 +1,7 @@
-name: 编译 PonWrt HG5382A 固件（上游原样）
+name: 编译 PonWrt HG5382A 固件
 
-# 直接用 pbs05/ponwrt master 的上游默认配置编译 HG5382A，不加任何定制：
-# - 不注入 config.addon / feeds.addon / files / patches
-# - 不装 Vantage / 中文 / 自定义插件 / 192.168.100.1
-# - 不打任何补丁（含 SkyHigh 补丁，HG5382A 是并行 NAND 本就不需要）
-# 只把 .config 里其他机型关掉以缩短编译时间，固件内容本身与上游默认完全一致。
+# 独立于 XG-040G-MD 的编译与发布：HG5382A 是并行 NAND（非 SkyHigh SPI NAND），
+# 不打闪存补丁。两次编译互不影响，各自发布独立的 Release tag。
 on:
   workflow_dispatch:
     inputs:
@@ -19,6 +16,11 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'config.addon'
+      - 'feeds.addon'
+      - 'files/**'
+      - 'build.sh'
+      - 'patches/**'
       - '.github/workflows/build-hg5382a.yml'
 
 permissions:
@@ -65,23 +67,32 @@ jobs:
           git clone --depth 1 https://github.com/pbs05/ponwrt.git ponwrt
           git -C ponwrt log -1 --format='PonWrt 源码版本: %h %s'
 
-      - name: 生成配置并编译（上游默认）
+      - name: 生成配置并编译
         working-directory: ponwrt
         env:
           DEVICE: fiberhome_hg5382a
           JOBS: ${{ github.event.inputs.jobs || '2' }}
           V: ${{ github.event.inputs.verbose == 'true' && 's' || '' }}
         run: |
-          echo "==> 使用上游默认配置 configs/an7581.config（不加任何定制）"
-          cp configs/an7581.config .config
-          # 只保留 HG5382A 一个机型，缩短编译时间；不改动任何包配置
-          python3 -c 'import re,sys; k=sys.argv[1]; p=".config"; ls=open(p,encoding="utf-8").read().splitlines(); out=[("# CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_%s is not set"%m.group(1)) if (m:=re.match(r"^CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_(.+)=y$",l)) and m.group(1)!=k else l for l in ls]; open(p,"w",encoding="utf-8").write("\n".join(out)+"\n"); print("  仅保留机型：%s"%k)' "$DEVICE"
+          # 动态版本号：主版本用北京时间日期，代号用 Actions 递增序号
+          export FW_NUMBER="$(TZ=Asia/Shanghai date +%Y.%m.%d)"
+          export FW_CODE="r${{ github.run_number }}"
+          echo "==> 固件版本：PonWrt ${FW_NUMBER} ${FW_CODE}"
+          echo "==> 机型：${DEVICE}（并行 NAND，不打闪存补丁）"
+          mkdir -p custom
+          cp -v "$GITHUB_WORKSPACE"/build.sh "$GITHUB_WORKSPACE"/config.addon \
+                "$GITHUB_WORKSPACE"/feeds.addon custom/
+          cp -rv "$GITHUB_WORKSPACE"/files custom/
+          cp -rv "$GITHUB_WORKSPACE"/patches custom/
+          chmod +x custom/build.sh custom/files/etc/uci-defaults/zzzz-custom
           echo "并行编译数 JOBS=$JOBS"
-          make defconfig
-          if [ "${V:-}" = "s" ]; then
-            make -j"$JOBS" V=s
-          else
-            make -j"$JOBS"
+          if ! ./custom/build.sh .; then
+            echo "::error::编译失败，下面单独重跑 base-files 以打印真实报错"
+            echo "=== make -j1 V=s package/base-files/compile ==="
+            make -j1 V=s package/base-files/compile 2>&1 | tail -200 || true
+            echo "=== 版本相关配置 ==="
+            grep -E '^CONFIG_(IMAGEOPT|VERSION)' .config || true
+            exit 1
           fi
 
       - name: 收集固件
@@ -94,7 +105,7 @@ jobs:
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
-          name: ponwrt-hg5382a-upstream-firmware
+          name: ponwrt-hg5382a-firmware
           path: firmware/
           retention-days: 30
           if-no-files-found: error
@@ -108,25 +119,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.FW_TAG }}
-          name: PonWrt HG5382A 固件（上游原样）${{ env.FW_VER }} r${{ github.run_number }}
+          name: PonWrt HG5382A 固件 ${{ env.FW_VER }} r${{ github.run_number }}
           body: |
-            **FiberHome HG5382A（AN7581，并行 NAND）PonWrt 固件 —— pbs05/ponwrt 上游原样编译**，由 GitHub Actions 自动编译发布。
+            **FiberHome HG5382A（AN7581，并行 NAND）PonWrt 固件**，由 GitHub Actions 自动编译发布。
 
             版本：PonWrt ${{ env.FW_VER }} r${{ github.run_number }}
             对应 tag：${{ env.FW_TAG }}
-            源码：https://github.com/pbs05/ponwrt （master 默认配置 `configs/an7581.config`，仅关闭其他机型以缩短编译时间；**未注入任何定制**：无 Vantage / 中文 / 自定义插件 / 192.168.100.1 / 补丁）
 
-            ## 固件特性（上游默认）
-            - 登录地址、界面语言、主题、插件均为 **pbs05/ponwrt 上游默认**（通常是 `192.168.1.1`、英文、LuCI 默认主题）
-            - 未做任何本地修改，固件内容与上游 master 默认编译一致
+            ## 固件特性
+            - 登录地址 `http://192.168.100.1`，简体中文，Vantage 主题
+            - 插件：UPnP、Autoreboot、ttyd、airoha-npu、WOL、omcproxy（IPTV 组播）、iStore 应用商店
+            - 时区：Asia/Shanghai（CST-8）
+            - 未打 SkyHigh 闪存补丁：HG5382A 是并行 NAND，不存在 SkyHigh 伪位翻转问题
 
-            ## 刷机说明（以 pbs05/ponwrt 上游定义为准，与 XG-040G-MD 不同）
+            ## 刷机说明（以 pbs05/ponwrt 上游 HG5382A 定义为准，与 XG-040G-MD 不同）
             - 分区布局：并行 NAND 8bit，前 128KiB 为 `bl2`，其余是一个 UBI 分区，内含 `fip` / `ubootenv` / `ubootenv2` / `factory` / `fit` 五个卷；rootfs 放在 `fit` 卷（fitblk），升级包为 `sysupgrade.itb`
             - 2.5G LAN1 为 MaxLinear GPY211，光模块为 FiberHome BOSA；校准与身份数据（MAC / PON SN / 光模块校准）在上游 `factory` 卷
             - **不要**照搬 MD 的免拆刷机流程，两台引导不通用
             - ⚠️ **华邦闪存批次（务必先看）**：部分 HG5382A 用 Winbond **W29N02KVSIAF** 256MB 并行 NAND。原厂整片按 **8bit BCH** 编码；而 `uboot-an758x` v2026.07-3 起按 ONFI 标称改成 **4bit**，Stock2UBI 免拆写入的 BL2/FIP 是原厂内核写的 8bit 数据，通用 BL2 按 4bit 解码 → 大量 ECC 不可纠正、找不到 fip 卷 → **黑灯变砖**（[issue #21](https://github.com/pbs05/uboot-an758x/issues/21)）
             - 到手**先 telnet 查闪存** `dmesg | grep -i nand`：若是华邦 W29N02KVSIAF，免拆刷通用 uboot 会砖，需用 xe5700 的 [uboot-an758x-winbond](https://github.com/xe5700/uboot-an758x-winbond) 临时 8bit 引导过渡，再刷回官方；已黑灯只能拆机 TTL + XMODEM 救砖（主板 TX/RX 未标注）
             - 刷机前备份原厂全部分区，尤其 `factory`；普通批次引导用 [AN758x U-Boot](https://github.com/pbs05/uboot-an758x)（HG5382A 是正式 target `hg5382a` / Parallel NAND，带 Web 恢复页），转 UBI 布局用 [AN758x-Stock2UBI](https://github.com/pbs05/an758x-stock2ubi)
+            - U-Boot Web 恢复：上电约 1 秒后按住 Reset 进入，浏览器开 `http://192.168.0.1/`；首次安装选「重建 UBI」→ 写入 `*-bl31-u-boot.fip` → 恢复板级数据卷 → 上传 sysupgrade → 启动系统；后续升级直接用「刷写系统」
             - 恢复校准数据：原厂 `factory` 备份先用 [FiberHome Factory](https://github.com/pbs05/fiberhome-factory) 转换，再写回 PonWrt 的 `factory` 卷，或在 LuCI「网络 → PON → 配置 → PON board data」恢复
             - 升级用 `*-sysupgrade.itb`，救砖用 `*-initramfs-recovery.itb`；校验文件 `sha256sums` / `sha256sums.txt`
           files: firmware/*
@@ -134,7 +147,7 @@ jobs:
 
       - name: 写入运行摘要
         run: |
-          echo "### 编译完成（HG5382A 上游原样）" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 编译完成（HG5382A）" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| 文件 | 大小 |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
@@ -142,4 +155,4 @@ jobs:
             echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
           done
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "pbs05/ponwrt master 上游默认配置编译，未注入任何定制。" >> "$GITHUB_STEP_SUMMARY"
+          echo "登录地址 http://192.168.100.1，界面简体中文，主题 Vantage" >> "$GITHUB_STEP_SUMMARY"
