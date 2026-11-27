@@ -1,16 +1,24 @@
-# PonWrt 固件编译配置（XG-040G-MD）
+# PonWrt 固件编译配置（XG-040G-MD + HG5382A）
 
 主线：[pbs05/ponwrt](https://github.com/pbs05/ponwrt)（基于 ImmortalWrt，Airoha AN7581/AN7583 PON 设备，包管理器为 **apk**）。
-目标设备：**Nokia XG-040G-MD**（AN7581，profile `nokia_xg-040g-md-ubi`）。
-管理地址：**192.168.100.1**；界面：**简体中文**；主题：**Vantage**。
 
-> 你写的「md-040g-md」我按 **XG-040G-MD** 处理。如果你的机器其实是 AN7583 的 **XG-040G-MF**，请把脚本里的 `configs/an7581.config` 换成 `configs/an7583.config`、`PROFILE` 换成 `nokia_xg-040g-mf-ubi`，其余不变。
+同一套配置编译**两台机型**，各自发布独立 Release：
+
+| 机型 | 平台 | 闪存 | profile | DEVICE 环境变量 | Release tag |
+|---|---|---|---|---|---|
+| **Nokia XG-040G-MD** | AN7581 | SkyHigh SPI NAND | `nokia_xg-040g-md-ubi` | `nokia_xg-040g-md-ubi`（默认） | `firmware-rN` |
+| **FiberHome HG5382A** | AN7581 | 并行 NAND | `fiberhome_hg5382a` | `fiberhome_hg5382a` | `hg5382a-rN` |
+
+两台均：管理地址 **192.168.100.1**、界面 **简体中文**、主题 **Vantage**、全套插件（含 iStore/UPnP/omcproxy）。
+差异：**MD 打 SkyHigh 闪存补丁**（SPI NAND）；HG5382A 是并行 NAND，**不打**该补丁，刷机流程也不同（见第七节）。
+
+> 切换机型只需设环境变量 `DEVICE`，其余配置、插件、主题全部共用。若你的机器是 AN7583 的 **XG-040G-MF**，请把 `configs/an7581.config` 换成 `configs/an7583.config`、`DEVICE` 换成 `nokia_xg-040g-mf-ubi`。
 
 ---
 
 ## 一、插件去重与改名结果
 
-最初清单里有 1 个重复、1 个笔误，处理后是 **1 个主题 + 6 个应用**；后续追加了 WOL。natmap（本机有公网、用不上打洞）与 IPTV（该插件的二层桥方案与实际环境不适配，改用手工脚本）已移除，现为 **1 个主题 + 6 个应用**（标"追加"）：
+最初清单里有 1 个重复、1 个笔误，处理后是 **1 个主题 + 6 个应用**；后续追加了 WOL 与 omcproxy。natmap（本机有公网、用不上打洞）与 IPTV（该插件的二层桥方案与实际环境不适配，改用手工脚本）已移除，现为 **1 个主题 + 7 个应用**（标"追加"）：
 
 | # | 你写的 | 处理结果 | 来源 |
 |---|---|---|---|
@@ -21,6 +29,7 @@
 | 5 | `luci-app-ttyd` | 保留 | ImmortalWrt `luci` feed |
 | 6 | `luci-app-airoha-npu` | 保留 | 第三方 feed `naoki66/luci-app-airoha` |
 | 7 | `luci-app-wol` | **追加**：网络唤醒（你说的"wol push"，社区无此同名包，确认用官方 WOL） | ImmortalWrt `luci` feed |
+| 8 | `luci-app-omcproxy` | **追加**：IGMPv3/MLDv2 组播代理（用于 IPTV 组播，自带 LuCI 界面） | PonWrt 主线 `luci` feed |
 
 > 已移除：`luci-app-natmap`（含笔误项 `luci-app-natmapt`）——本机有公网 IPv4，打洞无用；`luci-app-iptv`——其二层桥方案与联通 3300/4075 环境不适配，实际 IPTV 用独立脚本方案解决。
 
@@ -41,6 +50,7 @@
 | `luci-app-ttyd` | **`ttyd`** | Web 终端本体 |
 | `luci-app-airoha-npu` | **`kmod-br-netfilter`**、`CONFIG_KERNEL_DEVMEM`、busybox `devmem`、`rpcd` | 读 AN7581 NPU/PPE 寄存器必须有 `/dev/mem` + `devmem`；默认 config 里 `kmod-br-netfilter` 是关的，已补 |
 | `luci-app-wol`（追加） | **`etherwake`** | 发送魔术包的本体，已补；官方默认关 |
+| `luci-app-omcproxy`（追加） | **`omcproxy`** | 组播代理本体，已补；PonWrt 主线自带 |
 
 另外 `rpcd`、`rpcd-mod-ucode`、`rpcd-mod-file` 等官方配置里已经带上了。
 
@@ -48,10 +58,10 @@
 
 ## 三、中文怎么保证
 
-- 插件**全部有简体中文翻译**（`po/zh_Hans`），固件最终启用 10 个 `luci-i18n-*-zh-cn` 包：
+- 插件**全部有简体中文翻译**（`po/zh_Hans`），固件最终启用 11 个 `luci-i18n-*-zh-cn` 包：
   `base`、`firewall`、`package-manager`、`pon`（这 4 个官方 config 已带，故 `config.addon` 不重复写）＋
   `upnp`、`autoreboot`、`ttyd`、`airoha-npu`、`vantage-theme` ＋
-  `wol`（追加）（这 6 个由 `config.addon` 显式选中）。
+  `wol`、`omcproxy`（追加）（这 7 个由 `config.addon` 显式选中）。
 - `CONFIG_LUCI_LANG_zh_Hans=y` 让 LuCI 构建系统生成中文语言包，官方 config 已开。
 - 首次启动脚本 `zzzz-custom` 把 `luci.main.lang` 设为 `zh_cn`，并把默认主题设为 Vantage。
   若少数页面仍显示英文，到 **系统 → 系统 → 语言和界面** 选「简体中文」即可（个别新版本 LuCI 语言值写成 `zh-cn`，把脚本里 `zh_cn` 改成 `zh-cn` 即可）。
@@ -135,13 +145,14 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 运行状态：**https://github.com/anjinghk/ponwrt-040g-md-build/actions**
 
 - 公开仓库、Ubuntu 24.04 runner，单个 job 上限 **6 小时**，`JOBS=2`（2 核 / 7GB 内存，避免 OOM）。
-- 首次推送已自动触发一次编译；之后修改 `config.addon` / `feeds.addon` / `files/` / `build.sh` 再 push 会自动重编；也可以在 Actions 页点 **Run workflow** 手动重跑并指定并行数 / 是否输出详细日志。
-- 编译流程：释放磁盘 → 装 76 个编译依赖 → 浅克隆 `pbs05/ponwrt` → 运行 `build.sh`（feeds / config / defconfig / download / make）→ 收集固件。
-- 成功后在该次运行的 **Artifacts** 下载 `ponwrt-xg-040g-md-firmware`（zip，保留 30 天），运行摘要里会列出文件名与大小。
-- 失败时直接看 Actions 网页日志（GitHub 自动保存完整输出），常见失败点：feeds 拉取超时、磁盘不足、上游源码快照变动、Vantage 主题与 SNAPSHOT 不兼容。
+- **两个独立 workflow**：`build.yml`（XG-040G-MD，tag `firmware-rN`）与 `build-hg5382a.yml`（HG5382A，tag `hg5382a-rN`）。并发组各自独立，互不取消。
+- 修改 `config.addon` / `feeds.addon` / `files/` / `build.sh` / `patches/` 再 push 会**同时触发两台编译**；也可在 Actions 页单独点某台的 **Run workflow** 手动重跑。
+- 编译流程：释放磁盘 → 装 76 个编译依赖 → 浅克隆 `pbs05/ponwrt` → 运行 `build.sh`（feeds / config / **SkyHigh 补丁（仅 MD）** / defconfig / download / make）→ 收集固件 → 发布各自 Release。
+- 成功后**每台的 Release** 里下载对应固件（`*-squashfs-sysupgrade.itb` 升级、`*-initramfs-recovery.itb` 救砖）；Artifacts 分别为 `ponwrt-xg-040g-md-firmware` / `ponwrt-hg5382a-firmware`（保留 30 天）。
+- 失败时直接看 Actions 网页日志，常见失败点：feeds 拉取超时、磁盘不足、上游源码快照变动、Vantage 主题与 SNAPSHOT 不兼容、关键包未被 defconfig 选中。
 - **仓库里没有任何密钥**：workflow 使用 GitHub 自动注入的 `GITHUB_TOKEN`，推送用的 PAT 只存在于本地，不会写进仓库、日志或产物。
 
-> 云编译通常要 2~5 小时，也可能因上游变动失败而需要看日志迭代，不保证一次成功。刷机前请核对固件型号为 `nokia_xg-040g-md-ubi`。
+> 云编译通常要 1.5~3 小时/台，也可能因上游变动失败而需要看日志迭代。刷机前请核对固件机型（`nokia_xg-040g-md-ubi` 或 `fiberhome_hg5382a`），两台引导不通用。
 
 ---
 
@@ -167,14 +178,37 @@ LuCI「服务 → 网络唤醒」，添加设备填名称 + MAC 地址，接口�
 
 ---
 
+## 七·补2、luci-app-upnp 两处上游 Bug 的编译期修复
+
+`build.sh` 的 `[3.5/7]` 步对 feeds 源码做精准行级替换（改不到的会告警，便于发现版本差异）：
+
+1. **活动端口映射列表空白**：miniupnpd 2.3.11 起在 nft DNAT 规则插入 `counter packets N bytes N`，2022 年写死的正则要求 `dport` 后紧跟 `dnat`，导致列表空白（上游 [issue #9214](https://github.com/openwrt/luci/issues/9214)，PR #9200/#9269 至今未合并）。修复：`luci.upnp` 正则的 `dport ([0-9]+)` 与 `dnat` 之间加 `.*`，兼容有/无 counter。
+2. **description 存储型 XSS**：`upnp.js` 的 `s.render` 首次渲染把 `rule.descr` 裸字符串交给 `innerHTML`（CVE-2026-61875 漏补，[issue #9203](https://github.com/openwrt/luci/issues/9203)）。修复：该处改为 `'%h'.format(rule.descr)`；`poll_status` 那处上游已修，不动。
+
+---
+
+## 七·补3、iStore 应用商店（源码编译集成）
+
+iStore（`luci-app-store`）**从源码编译进固件**，开机即用、无需联网安装：
+
+- `build.sh` 的 `[2.5/7]` 步浅克隆 `kenzok8/small-package`，**只取 4 个包**：`luci-app-store`（本体）、`luci-lib-taskd`、`luci-lib-xterm`、`taskd`（依赖），不引入该仓库里几百个无关包。
+- 修正 `luci-app-store/Makefile`：把 `LUCI_DEPENDS` 改为仅 `+luci-lib-taskd`、删除 `LUCI_EXTRA_DEPENDS`（原依赖 `libuci-lua`/`mount-utils` 在 PonWrt 精简树里没有，会导致 defconfig 静默剔除本体）。运行期真正需要的 `curl`/`taskd`/`luci-compat` 由 `config.addon` 显式选中。
+- `build.sh` 有**硬校验**：`luci-app-store`/`miniupnpd-nftables`/`curl` 等关键包任一未被 defconfig 选中就立即中止，避免白编数小时后才发现没装全。
+
+> 参考了 `zk6685/zk-vikingowrt` 的做法：只拷贝 iStore 相关的 4 个包，不把 small-package 的其他应用编进来。
+
+---
+
 ## 八、文件清单
 
 | 文件 | 用途 |
 |---|---|
-| `build.sh` | 一键编译脚本（feeds / config / files / defconfig / download / make） |
+| `build.sh` | 一键编译脚本（`DEVICE` 环境变量切机型；feeds / config / iStore 源码集成 / UPnP 修复 / SkyHigh 补丁 / defconfig / download / make） |
 | `feeds.addon` | 2 行第三方 feed（vantage、airoha） |
-| `config.addon` | 追加到 `.config` 的完整符号（插件、依赖、中文、IP、版本号） |
-| `files/etc/uci-defaults/zzzz-custom` | 首次开机设置 IP / 中文 / Vantage 主题 / 运行时去 git hash |
-| `.github/workflows/build.yml` | GitHub Actions 云编译 workflow（含失败兜底） |
+| `config.addon` | 追加到 `.config` 的完整符号（8 插件、依赖、中文、IP、版本号，含 omcproxy/iStore） |
+| `files/etc/uci-defaults/zzzz-custom` | 首次开机设置 IP / 中文 / Vantage 主题 / 运行时去 git hash / DHCP force |
+| `patches/971-mtd-spinand-skyhigh-premature-ready.patch` | SkyHigh SPI NAND 二次确认补丁（仅 MD 用，基于 6.18.60 内核，已实测干净应用） |
+| `.github/workflows/build.yml` | XG-040G-MD 云编译 workflow（tag `firmware-rN`，含补丁与失败兜底） |
+| `.github/workflows/build-hg5382a.yml` | HG5382A 云编译 workflow（tag `hg5382a-rN`，并行 NAND 不打补丁） |
 
-> 注：`version.uc` 编译期 overlay 已在上一轮修复中删除，改由 `zzzz-custom` 在首次开机时运行时生成，避免再次触发 `package/base-files` 编译失败。
+> 注：`version.uc` 编译期 overlay 早已删除，改由 `zzzz-custom` 首次开机时生成，避免触发 `package/base-files` 编译失败。iStore 已从旧的「运行时安装」改为源码编译集成，旧的 `istore-reinstall.run` / `95-istore-auto-install` 两个文件已删除。

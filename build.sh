@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # PonWrt (pbs05/ponwrt) 一键编译脚本
-# 设备：Nokia XG-040G-MD / AN7581（profile: nokia_xg-040g-md-ubi）
-# 用途：官方主线 + Vantage 主题 + 6 个应用 + 中文 + LAN 192.168.100.1
+# 设备：Nokia XG-040G-MD 与 FiberHome HG5382A（均为 AN7581）
+# 通过环境变量 DEVICE 切换机型（默认 nokia_xg-040g-md-ubi）：
+#   DEVICE=nokia_xg-040g-md-ubi  → XG-040G-MD，附带 SkyHigh 闪存补丁（SPI NAND）
+#   DEVICE=fiberhome_hg5382a     → HG5382A（并行 NAND，不打闪存补丁）
+# 两套固件均沿用：Vantage 主题 + 全套插件 + 中文 + LAN 192.168.100.1
 # 用法：把本文件夹放到 ponwrt 源码根目录下，然后
 #         cd /path/to/ponwrt && ./ponwrt-040g-md/build.sh
 #       或 ./build.sh /path/to/ponwrt
@@ -11,7 +14,14 @@
 set -euo pipefail
 
 LAN_IP="192.168.100.1"
-PROFILE="nokia_xg-040g-md-ubi"
+PROFILE="${DEVICE:-nokia_xg-040g-md-ubi}"
+case "$PROFILE" in
+  nokia_xg-040g-md-ubi) PRODUCT="XG-040G-MD"; FLASH_PATCH=1 ;;
+  fiberhome_hg5382a)    PRODUCT="HG5382A";    FLASH_PATCH=0 ;;
+  *)
+    echo "错误：未知 DEVICE=$PROFILE（可选 nokia_xg-040g-md-ubi / fiberhome_hg5382a）" >&2
+    exit 1 ;;
+esac
 SRC="${1:-$PWD}"
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 并行编译数：GitHub Actions 的 2 核 runner 请设 JOBS=2，避免内存不足
@@ -163,7 +173,7 @@ PY
 
 echo "==> [4/7] 生成 .config（基于 configs/an7581.config）"
 cp configs/an7581.config .config
-# 只编译 XG-040G-MD，关掉同 config 里其它机型，缩短编译时间
+# 只编译当前机型（$PROFILE），关掉同 config 里其它机型，缩短编译时间
 python3 - "$PROFILE" <<'PY'
 import re, sys
 keep = sys.argv[1]
@@ -193,6 +203,20 @@ lines = [l for l in lines
 open('.config', 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PY
 cat "$SELF/config.addon" >> .config
+
+# 按机型覆盖产品名（config.addon 里默认写的是 XG-040G-MD）
+python3 - "$PRODUCT" <<'PY'
+import sys, re
+product = sys.argv[1]
+p = '.config'
+s = open(p, encoding='utf-8').read()
+s, n = re.subn(r'^CONFIG_VERSION_PRODUCT=.*$',
+               'CONFIG_VERSION_PRODUCT="%s"' % product, s, flags=re.M)
+if not n:
+    s += '\nCONFIG_VERSION_PRODUCT="%s"\n' % product
+open(p, 'w', encoding='utf-8').write(s)
+print("  固件产品名 -> %s" % product)
+PY
 
 # ---------- 动态版本号 ----------
 # 云编译时由 workflow 传入 FW_NUMBER（日期）与 FW_CODE（递增代号）；
@@ -258,6 +282,23 @@ open('.config', 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 print("  保留在线源的 feed：%s（+ targets/base 自动）" % ', '.join(standard))
 print("  已关闭在线源的 feed：%s" % (', '.join(disabled) if disabled else '（无）'))
 PY
+
+# ---------- SkyHigh premature-ready 闪存补丁（仅 MD / SPI NAND 机型）----------
+# 修 XG-040G-MD 上 SkyHigh S35ML 闪存的"伪位翻转"：读页/连续读等待就绪后
+# 二次确认状态寄存器，避免读早了抓到未就绪的脏数据。基于 6.18.60 内核
+# drivers/mtd/nand/spi/core.c 生成，已实测可干净 apply（无 fuzz/偏移）。
+# 只对 SPI NAND 的 core.c 生效；HG5382A 是并行 NAND，不打此补丁。
+echo "==> [4.8/7] SkyHigh 闪存补丁（机型 $PRODUCT，FLASH_PATCH=$FLASH_PATCH）"
+PATCH_SRC="$SELF/patches/971-mtd-spinand-skyhigh-premature-ready.patch"
+if [ "$FLASH_PATCH" = "1" ]; then
+    [ -f "$PATCH_SRC" ] || { echo "错误：缺少闪存补丁 $PATCH_SRC" >&2; exit 1; }
+    # OpenWrt 自动应用 target/linux/generic/hack-6.18/ 下的 .patch
+    PATCH_DST="target/linux/generic/hack-6.18/971-mtd-spinand-skyhigh-premature-ready.patch"
+    cp -f "$PATCH_SRC" "$PATCH_DST"
+    echo "  已应用 SkyHigh 二次确认补丁 -> $PATCH_DST"
+else
+    echo "  跳过（$PRODUCT 非 SPI NAND / 非 SkyHigh 机型）"
+fi
 
 echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 # 注意：绝不要在源码根目录写 version 文件。scripts/getver.sh 会优先读它，

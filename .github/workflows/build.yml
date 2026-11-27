@@ -70,6 +70,7 @@ jobs:
       - name: 生成配置并编译
         working-directory: ponwrt
         env:
+          DEVICE: nokia_xg-040g-md-ubi
           JOBS: ${{ github.event.inputs.jobs || '2' }}
           V: ${{ github.event.inputs.verbose == 'true' && 's' || '' }}
         run: |
@@ -77,10 +78,13 @@ jobs:
           export FW_NUMBER="$(TZ=Asia/Shanghai date +%Y.%m.%d)"
           export FW_CODE="r${{ github.run_number }}"
           echo "==> 固件版本：PonWrt ${FW_NUMBER} ${FW_CODE}"
+          echo "==> 机型：${DEVICE}（附带 SkyHigh 闪存补丁）"
           mkdir -p custom
           cp -v "$GITHUB_WORKSPACE"/build.sh "$GITHUB_WORKSPACE"/config.addon \
                 "$GITHUB_WORKSPACE"/feeds.addon custom/
           cp -rv "$GITHUB_WORKSPACE"/files custom/
+          # 闪存补丁源码：build.sh 会把它拷进内核树后再编译
+          cp -rv "$GITHUB_WORKSPACE"/patches custom/
           chmod +x custom/build.sh custom/files/etc/uci-defaults/zzzz-custom
           echo "并行编译数 JOBS=$JOBS"
           if ! ./custom/build.sh .; then
@@ -128,8 +132,9 @@ jobs:
 
             ## 固件特性
             - 登录地址 `http://192.168.100.1`，简体中文，Vantage 主题
-            - 插件：UPnP、Autoreboot、ttyd、airoha-npu、WOL（保持精简，不含 natmap/iptv）
+            - 插件：UPnP（含 counter 正则 + XSS 修复）、Autoreboot、ttyd、airoha-npu、WOL、omcproxy（IPTV 组播）、iStore 应用商店
             - 时区：Asia/Shanghai（CST-8）
+            - **SkyHigh 闪存补丁**：读页/连续读等待就绪后二次确认状态寄存器，缓解伪位翻转（民间方案，基于 6.18.60 内核）
 
             ## 刷机说明
             - UBI 设备用 `*-squashfs-sysupgrade.itb` 刷机，`*-initramfs-recovery.itb` 为救砖 recovery

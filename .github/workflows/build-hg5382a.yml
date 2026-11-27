@@ -1,0 +1,155 @@
+name: 编译 PonWrt HG5382A 固件
+
+# 独立于 XG-040G-MD 的编译与发布：HG5382A 是并行 NAND（非 SkyHigh SPI NAND），
+# 不打闪存补丁。两次编译互不影响，各自发布独立的 Release tag。
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'make 并行数（2 核 runner 建议 2，避免内存不足）'
+        required: false
+        default: '2'
+      verbose:
+        description: '输出详细编译日志 (V=s)'
+        type: boolean
+        default: false
+  push:
+    branches: [ main ]
+    paths:
+      - 'config.addon'
+      - 'feeds.addon'
+      - 'files/**'
+      - 'build.sh'
+      - 'patches/**'
+      - '.github/workflows/build-hg5382a.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ponwrt-hg5382a-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: 检出配置仓库
+        uses: actions/checkout@v4
+
+      - name: 释放磁盘空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
+                      /usr/local/.ghcup || true
+          sudo apt-get clean
+          df -h
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+            gettext gcc-multilib g++-multilib git libgnutls28-dev gperf haveged help2man \
+            intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp-dev \
+            libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev zlib1g-dev lld llvm lrzsz \
+            genisoimage msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 \
+            python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c \
+            rsync scons squashfs-tools subversion swig texinfo node-uglify upx-ucl unzip \
+            vim wget xmlto xxd zstd
+          echo "依赖安装完成"
+
+      - name: 克隆 PonWrt 主线
+        run: |
+          git clone --depth 1 https://github.com/pbs05/ponwrt.git ponwrt
+          git -C ponwrt log -1 --format='PonWrt 源码版本: %h %s'
+
+      - name: 生成配置并编译
+        working-directory: ponwrt
+        env:
+          DEVICE: fiberhome_hg5382a
+          JOBS: ${{ github.event.inputs.jobs || '2' }}
+          V: ${{ github.event.inputs.verbose == 'true' && 's' || '' }}
+        run: |
+          # 动态版本号：主版本用北京时间日期，代号用 Actions 递增序号
+          export FW_NUMBER="$(TZ=Asia/Shanghai date +%Y.%m.%d)"
+          export FW_CODE="r${{ github.run_number }}"
+          echo "==> 固件版本：PonWrt ${FW_NUMBER} ${FW_CODE}"
+          echo "==> 机型：${DEVICE}（并行 NAND，不打闪存补丁）"
+          mkdir -p custom
+          cp -v "$GITHUB_WORKSPACE"/build.sh "$GITHUB_WORKSPACE"/config.addon \
+                "$GITHUB_WORKSPACE"/feeds.addon custom/
+          cp -rv "$GITHUB_WORKSPACE"/files custom/
+          cp -rv "$GITHUB_WORKSPACE"/patches custom/
+          chmod +x custom/build.sh custom/files/etc/uci-defaults/zzzz-custom
+          echo "并行编译数 JOBS=$JOBS"
+          if ! ./custom/build.sh .; then
+            echo "::error::编译失败，下面单独重跑 base-files 以打印真实报错"
+            echo "=== make -j1 V=s package/base-files/compile ==="
+            make -j1 V=s package/base-files/compile 2>&1 | tail -200 || true
+            echo "=== 版本相关配置 ==="
+            grep -E '^CONFIG_(IMAGEOPT|VERSION)' .config || true
+            exit 1
+          fi
+
+      - name: 收集固件
+        run: |
+          mkdir -p firmware
+          find ponwrt/bin/targets/airoha/an7581 -maxdepth 1 -type f -exec cp -v {} firmware/ \;
+          ls -lh firmware/
+          test -n "$(ls -A firmware)" || { echo "::error::未找到固件文件"; exit 1; }
+
+      - name: 上传固件
+        uses: actions/upload-artifact@v4
+        with:
+          name: ponwrt-hg5382a-firmware
+          path: firmware/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 生成固件版本 tag
+        run: |
+          echo "FW_TAG=hg5382a-r${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "FW_VER=$(TZ=Asia/Shanghai date +%Y.%m.%d)" >> "$GITHUB_ENV"
+
+      - name: 发布固件到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.FW_TAG }}
+          name: PonWrt HG5382A 固件 ${{ env.FW_VER }} r${{ github.run_number }}
+          body: |
+            **FiberHome HG5382A（AN7581，并行 NAND）PonWrt 固件**，由 GitHub Actions 自动编译发布。
+
+            版本：PonWrt ${{ env.FW_VER }} r${{ github.run_number }}
+            对应 tag：${{ env.FW_TAG }}
+
+            ## 固件特性
+            - 登录地址 `http://192.168.100.1`，简体中文，Vantage 主题
+            - 插件：UPnP、Autoreboot、ttyd、airoha-npu、WOL、omcproxy（IPTV 组播）、iStore 应用商店
+            - 时区：Asia/Shanghai（CST-8）
+            - 未打 SkyHigh 闪存补丁：HG5382A 是并行 NAND，不存在 SkyHigh 伪位翻转问题
+
+            ## 刷机说明（⚠️ 与 XG-040G-MD 不同，务必先看）
+            - HG5382A 是**并行 NAND**，引导与 MD 不通用：**不要**照搬 MD 的免拆刷机流程
+            - 华邦 W29N02KVSIAF 闪存需用 xe5700 的华邦专用 uboot（ECC 8bit 编码）；原厂是 8bit，通用 uboot 默认 4bit 会黑灯变砖
+            - 到手先 telnet 查闪存型号（`dmesg | grep -i nand`），华邦批次务必走专用引导
+            - 刷机前备份原厂全部分区，尤其 **factory**（校准/身份数据）；恢复时需经 fiberhome-factory 转换再写回
+            - 救砖需拆机 + TTL 串口（主板 TX/RX 未标注）
+            - 校验文件：`sha256sums` / `sha256sums.txt`
+          files: firmware/*
+          fail_on_unmatched_files: true
+
+      - name: 写入运行摘要
+        run: |
+          echo "### 编译完成（HG5382A）" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 文件 | 大小 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for f in firmware/*; do
+            echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "登录地址 http://192.168.100.1，界面简体中文，主题 Vantage" >> "$GITHUB_STEP_SUMMARY"
