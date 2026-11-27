@@ -85,14 +85,17 @@
 
 > **`PonWrt 2026.11 r1 / LuCI release`**
 
-LuCI「状态 → 概览 → 固件版本」显示 `OPENWRT_RELEASE`（模板是 `%D %V %C`，不含 `%R`），所以**只靠 `.config` 就是干净的**；固件文件名同步变成 `ponwrt-2026.11-r1-airoha-an7581-nokia_xg-040g-md-ubi-squashfs-sysupgrade.itb`。
+概览页其实是**两行版本号，分开管**：
+
+- 「固件版本」行显示 `OPENWRT_RELEASE`（模板 `%D %V %C`，不含 `%R`）——**只靠 `.config` + `build.sh` 编译期替换就是干净的，不需要开机脚本**。固件文件名同步变成 `ponwrt-2026.11-r1-airoha-an7581-nokia_xg-040g-md-ubi-squashfs-sysupgrade.itb`。
+- 「LuCI … (git-…)」行来自 **LuCI 包自己的** `version.uc`，`.config` 管不到——这才是开机脚本唯一要处理的版本号项。
 
 | 位置 | 作用 |
 |---|---|
-| `config.addon` 的 `CONFIG_VERSIONOPT` 段 | `VERSION_NUMBER=2026.11`、`VERSION_CODE=r1`；`VERSION_FILENAMES` / `VERSION_CODE_FILENAMES` 让文件名自动带版本 |
-| `files/etc/uci-defaults/zzzz-custom` 第 5、6 段 | 首次开机清掉 `BUILD_ID` / `DISTRIB_REVISION` / `/etc/build.version` 里 `%R` 残留的 hash，并覆盖 LuCI 版本模块去掉 `git-…` |
+| `config.addon` 的 `CONFIG_VERSIONOPT` 段 + `build.sh` 编译期 `sed` | `VERSION_NUMBER=2026.11`、`VERSION_CODE=r1` 决定「固件版本」行；`build.sh` 把 `openwrt_release` / `os-release` 模板的 `%R` 换成代号（无 git hash）；`VERSION_FILENAMES` / `VERSION_CODE_FILENAMES` 让文件名带版本 |
+| `files/etc/uci-defaults/zzzz-custom` 第 4 段 | 首次开机覆盖 `/usr/share/ucode/luci/version.uc`，去掉概览页「LuCI … (git-…)」那行的 hash（这行 `.config` 管不到，且编译期用 `files/` overlay 覆盖会导致 base-files 编译失败，故放到运行时） |
 
-**以后想改**：改 `config.addon` 的 `CONFIG_VERSION_NUMBER` / `CONFIG_VERSION_CODE`（例如 `2026.12` / `r2`），同时把 `zzzz-custom` 里的 `VER_CODE` 改成一致，再重编译即可。
+**以后想改**：改 `config.addon` 的 `CONFIG_VERSION_NUMBER` / `CONFIG_VERSION_CODE`（例如 `2026.12` / `r2`）再重编译即可；开机脚本不存版本号变量，无需同步改。
 
 > **⚠️ 不要在源码根目录写 `version` 文件**（早期版本这么做过，已撤销）。`scripts/getver.sh` 会优先读它并改写全局 `REVISION`，连带影响 base-files 的 stamp 与包版本计算，实测会导致 `package/base-files` 编译失败、整个固件编不出来。同理，也**不要用 `files/` overlay 覆盖 `/usr/share/ucode/luci/version.uc`**（编译期多出 `usr/` 目录会改变 base-files 的安装输入）；这两件事都改由首次开机脚本在运行时处理。
 >
