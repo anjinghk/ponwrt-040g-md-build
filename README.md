@@ -160,6 +160,8 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 
 > **HG5382A 刷机请以 pbs05/ponwrt 上游定义为准**：上游 profile 为 `fiberhome_hg5382a`，DTS `an7581-fiberhome-hg5382a.dts`，并行 NAND 8bit（DTSI `an7581-fiberhome-ubi-parts.dtsi`）。分区：前 128KiB 为 `bl2`，其余为一个 UBI 分区，内含 `fip` / `ubootenv` / `ubootenv2` / `factory` / `fit` 五个卷，rootfs 在 `fit` 卷（fitblk），升级包 `sysupgrade.itb`。2.5G LAN1 用 MaxLinear GPY211，光模块为 FiberHome BOSA。校准/MAC/PON SN 存于 `factory` 卷。上游官方刷机工具：引导 [AN758x U-Boot](https://github.com/pbs05/uboot-an758x)（HG5382A 是正式 target `hg5382a` / Parallel NAND，带中英文 Web 恢复页：上电约 1 秒后按住 Reset 进入，浏览器开 `http://192.168.0.1/`）+ 转 UBI 布局 [AN758x-Stock2UBI](https://github.com/pbs05/an758x-stock2ubi) + 校准转换 [FiberHome Factory](https://github.com/pbs05/fiberhome-factory)。**这些以源码为准，不要照搬 MD 的免拆流程**（两台引导不通用）。
 
+> **⚠️ HG5382A 华邦闪存批次（重要，issue #21 实测）**：部分 HG5382A 用 Winbond **W29N02KVSIAF** 256MB 并行 NAND。原厂整片按 **8bit BCH** 编码；`uboot-an758x` v2026.07-3 起按 ONFI 标称改成 **4bit**，Stock2UBI 免拆写入的 BL2/FIP 是原厂内核写的 8bit 数据，通用 BL2 按 4bit 解码 → 大量 ECC 不可纠正、找不到 fip 卷 → **黑灯变砖**。到手先 telnet `dmesg | grep -i nand` 查闪存；华邦批次需用 xe5700 的 [uboot-an758x-winbond](https://github.com/xe5700/uboot-an758x-winbond) 临时 8bit 引导过渡再刷回官方；已黑灯只能拆机 TTL + XMODEM 救砖（主板 TX/RX 未标注，参考 [issue #21](https://github.com/pbs05/uboot-an758x/issues/21)）。普通批次按常规 uboot 流程即可。
+
 1. **Vantage 兼容性**：官方标注支持 OpenWrt **25.12 / 24.10**，`Snapshots` 为「Untested」。PonWrt 是 ImmortalWrt master 的 SNAPSHOT（内核 6.18），能编译但没经过官方验证。若刷好后主题白屏，SSH 里执行
    `uci set luci.main.mediaurlbase=/luci-static/bootstrap; uci commit luci` 换回默认主题，或去掉 `CONFIG_PACKAGE_luci-theme-vantage` 重编。
 2. **`luci-app-airoha-npu` 机型差异**：该插件原是给 Gemtek XR1710G / XG2010G 写的（同为 AN7581）。在 XG-040G-MD 上 NPU / PPE / 网口状态可用，但 WiFi、风扇等板块可能不适用或显示为空。
