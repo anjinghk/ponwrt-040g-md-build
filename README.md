@@ -158,6 +158,8 @@ make defconfig && make -j$(nproc) download && make -j$(nproc)
 
 ## 七、需要留意的风险
 
+> **HG5382A 刷机请以 pbs05/ponwrt 上游定义为准**：上游 profile 为 `fiberhome_hg5382a`，DTS `an7581-fiberhome-hg5382a.dts`，并行 NAND 8bit（DTSI `an7581-fiberhome-ubi-parts.dtsi`）。分区：前 128KiB 为 `bl2`，其余为一个 UBI 分区，内含 `fip` / `ubootenv` / `ubootenv2` / `factory` / `fit` 五个卷，rootfs 在 `fit` 卷（fitblk），升级包 `sysupgrade.itb`。2.5G LAN1 用 MaxLinear GPY211，光模块为 FiberHome BOSA。校准/MAC/PON SN 存于 `factory` 卷。上游官方刷机工具：引导 [AN758x U-Boot](https://github.com/pbs05/uboot-an758x)（HG5382A 是正式 target `hg5382a` / Parallel NAND，带中英文 Web 恢复页：上电约 1 秒后按住 Reset 进入，浏览器开 `http://192.168.0.1/`）+ 转 UBI 布局 [AN758x-Stock2UBI](https://github.com/pbs05/an758x-stock2ubi) + 校准转换 [FiberHome Factory](https://github.com/pbs05/fiberhome-factory)。**这些以源码为准，不要照搬 MD 的免拆流程**（两台引导不通用）。
+
 1. **Vantage 兼容性**：官方标注支持 OpenWrt **25.12 / 24.10**，`Snapshots` 为「Untested」。PonWrt 是 ImmortalWrt master 的 SNAPSHOT（内核 6.18），能编译但没经过官方验证。若刷好后主题白屏，SSH 里执行
    `uci set luci.main.mediaurlbase=/luci-static/bootstrap; uci commit luci` 换回默认主题，或去掉 `CONFIG_PACKAGE_luci-theme-vantage` 重编。
 2. **`luci-app-airoha-npu` 机型差异**：该插件原是给 Gemtek XR1710G / XG2010G 写的（同为 AN7581）。在 XG-040G-MD 上 NPU / PPE / 网口状态可用，但 WiFi、风扇等板块可能不适用或显示为空。
