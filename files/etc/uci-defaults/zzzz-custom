@@ -28,4 +28,71 @@ printf "%s\n" "export const revision = 'release', branch = 'LuCI';" \
 rm -f /tmp/luci-indexcache.*
 rm -rf /tmp/luci-modulecache/
 
+# 5) 强制本机在 LAN 口提供 DHCP（关键修复）
+#    现象：光猫 / FTTR 从设备等会在 LAN 广播域里发 DHCP 应答，
+#    dnsmasq 启动时用 dhcp_check 探测到后，会判定"该口已有 DHCP 服务器"
+#    并主动拒绝启动、不生成 dhcp-range，导致下挂设备全部拿不到 IPv4。
+#    option force 1 让 init 脚本跳过该探测，始终由本机在 LAN 口发地址。
+uci -q set dhcp.lan.force='1'
+uci commit dhcp
+
+# ---------- 以下为网络性能优化（综合 wuziwei/ponwrt-ZN504 实测）----------
+
+# 6) 硬件流卸载 + FullCone NAT（内核补丁 931/932 + 982-985 编入后生效）
+#    931/932 修 AN7581 PPE 在 PPPoE/IPv6/桥接从端口上的卸载缺陷；
+#    FullCone 让 NAT 类型变 NAT1（BT/迅雷/主机联机更稳）。
+uci -q batch <<'UCIEOF'
+set firewall.@defaults[0].flow_offloading='1'
+set firewall.@defaults[0].flow_offloading_hw='1'
+set firewall.@defaults[0].fullcone='1'
+commit firewall
+UCIEOF
+
+# 7) 关闭 packet_steering（避免多核软中断把 PPPoE/NPU 流打乱），
+#    并在 br-lan 上开 IGMP snooping（组播精准投递，不泛洪到 WiFi）
+uci -q batch <<'UCIEOF'
+set network.globals.packet_steering='0'
+set network.@device[0].igmp_snooping='1'
+commit network
+UCIEOF
+if [ -f /etc/init.d/packet_steering ]; then
+    /etc/init.d/packet_steering disable 2>/dev/null || true
+    /etc/init.d/packet_steering stop 2>/dev/null || true
+fi
+
+# 8) SSDP / WSD 广播 NOTRACK：不让 UPnP 发现与 Windows 网络发现包污染 conntrack 表
+uci -q batch <<'UCIEOF'
+set firewall.upnp_ssdp_notrack=rule
+set firewall.upnp_ssdp_notrack.name='UPnP SSDP multicast discovery'
+set firewall.upnp_ssdp_notrack.src='lan'
+set firewall.upnp_ssdp_notrack.family='ipv4'
+set firewall.upnp_ssdp_notrack.proto='udp'
+set firewall.upnp_ssdp_notrack.dest_ip='239.255.255.250'
+set firewall.upnp_ssdp_notrack.dest_port='1900'
+set firewall.upnp_ssdp_notrack.target='NOTRACK'
+
+set firewall.wsd_v4_notrack=rule
+set firewall.wsd_v4_notrack.name='WSD IPv4 multicast'
+set firewall.wsd_v4_notrack.src='lan'
+set firewall.wsd_v4_notrack.family='ipv4'
+set firewall.wsd_v4_notrack.proto='udp'
+set firewall.wsd_v4_notrack.dest_ip='239.255.255.250'
+set firewall.wsd_v4_notrack.dest_port='3702'
+set firewall.wsd_v4_notrack.target='NOTRACK'
+
+set firewall.wsd_v6_notrack=rule
+set firewall.wsd_v6_notrack.name='WSD IPv6 multicast'
+set firewall.wsd_v6_notrack.src='lan'
+set firewall.wsd_v6_notrack.family='ipv6'
+set firewall.wsd_v6_notrack.proto='udp'
+set firewall.wsd_v6_notrack.dest_ip='ff02::c'
+set firewall.wsd_v6_notrack.dest_port='3702'
+set firewall.wsd_v6_notrack.target='NOTRACK'
+commit firewall
+UCIEOF
+
+# 9) 首次加载调优后的 sysctl（开机 sysctl.d 也会自动加载）
+[ -f /etc/sysctl.d/99-ponwrt-optimization.conf ] && \
+    sysctl -p /etc/sysctl.d/99-ponwrt-optimization.conf >/dev/null 2>&1 || true
+
 exit 0

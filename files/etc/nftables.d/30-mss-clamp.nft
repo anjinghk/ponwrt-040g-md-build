@@ -1,0 +1,9 @@
+# MSS 钳制：PPPoE 链路 MTU 1492，IPv4 MSS 上限 1452、IPv6 上限 1412。
+# 解决微信朋友圈/国内 CDN 图片视频因 IPv6 PMTU 黑洞导致的长时间转圈。
+# firewall4 会自动把 /etc/nftables.d/*.nft 包含进 inet fw4 表。
+# 用独立 chain + hook forward，匹配 WAN 方向 TCP SYN，改写 maxseg。
+
+chain mss_clamp_forward {
+    type filter hook forward priority filter - 1; policy accept;
+    tcp flags syn tcp option maxseg size set rt mtu
+}

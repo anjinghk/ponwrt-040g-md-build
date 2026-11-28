@@ -67,13 +67,26 @@ jobs:
           git clone --depth 1 https://github.com/pbs05/ponwrt.git ponwrt
           git -C ponwrt log -1 --format='PonWrt 源码版本: %h %s'
 
+      - name: 恢复 ccache 缓存
+        id: ccache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ponwrt/.ccache
+          key: ccache-hg5382a-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-hg5382a-${{ runner.os }}-
+
       - name: 生成配置并编译
         working-directory: ponwrt
         env:
           DEVICE: fiberhome_hg5382a
           JOBS: ${{ github.event.inputs.jobs || '2' }}
           V: ${{ github.event.inputs.verbose == 'true' && 's' || '' }}
+          CCACHE_DIR: ${{ github.workspace }}/ponwrt/.ccache
+          CCACHE_MAXSIZE: 5G
+          CCACHE_COMPILERCHECK: '%compiler% -dumpmachine; %compiler% -dumpversion'
         run: |
+          ccache -s || true
           # 动态版本号：主版本用北京时间日期，代号用 Actions 递增序号
           export FW_NUMBER="$(TZ=Asia/Shanghai date +%Y.%m.%d)"
           export FW_CODE="r${{ github.run_number }}"
@@ -101,6 +114,13 @@ jobs:
           find ponwrt/bin/targets/airoha/an7581 -maxdepth 1 -type f -exec cp -v {} firmware/ \;
           ls -lh firmware/
           test -n "$(ls -A firmware)" || { echo "::error::未找到固件文件"; exit 1; }
+
+      - name: 保存 ccache 缓存
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ponwrt/.ccache
+          key: ccache-hg5382a-${{ runner.os }}-${{ github.sha }}
 
       - name: 上传固件
         uses: actions/upload-artifact@v4

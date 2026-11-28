@@ -206,16 +206,40 @@ iStore（`luci-app-store`）**从源码编译进固件**，开机即用、无需
 
 ---
 
+## 七·补4、网络性能优化（集成 wuziwei/ponwrt-ZN504 实测方案）
+
+两台机型均加入以下优化（WiFi 相关项不涉及，本机无 WiFi）：
+
+| 优化 | 落地位置 | 作用 |
+|---|---|---|
+| **PPE 硬件卸载 931/932** | `patches/airoha-6.18/` | 修 AN7581 PPPoE/IPv6/桥接从端口的硬件卸载缺陷，解决 WAN 方向卸载率为 0、全靠 CPU 软转的问题（你 NPU 面板截图 CDM2=0 的病根） |
+| **FullCone NAT 982-985** | `patches/generic-6.18/` + `patches/pkg/` + `fullconenat-nft` 包 | NAT1，BT/迅雷/主机联机更稳；含 nftables/libnftnl/firewall4 配套补丁 |
+| **BBR 拥塞控制** | `config.addon` 的 `kmod-tcp-bbr` + sysctl | 高延迟链路吞吐更好 |
+| **缓冲区/队列/conntrack 调优** | `files/etc/sysctl.d/99-ponwrt-optimization.conf` | 初始缓冲 256KB 省内存、上限 4MB、netdev 队列 10000、conntrack 快速回收、网桥绕过 netfilter |
+| **MSS 钳制** | `files/etc/nftables.d/30-mss-clamp.nft` | 按链路 MTU 自动钳制 TCP MSS（PPPoE 1452），治微信朋友圈/CDN 转圈 |
+| **SSDP/WSD NOTRACK** | `zzzz-custom` | 广播发现包绕过 conntrack，防止表膨胀 |
+| **flow offload + FullCone 开关** | `zzzz-custom` | 开机自动打开硬件流卸载与 FullCone |
+| **ccache 编译缓存** | 两个 workflow + `CONFIG_CCACHE=y` | 重编从 1.5~3 小时降到 20~40 分钟 |
+
+**容错设计**：内核/包级补丁全部经 `patch --dry-run` 预检或 OpenWrt fuzz 机制；万一某补丁与上游版本不匹配，只会跳过该优化并告警，**不会导致整体编译失败**。包级补丁（nftables/libnftnl/firewall4）若版本对不上会自动跳过，此时 FullCone 可能不完整（但不影响基础功能）。
+
+> 说明：wuziwei README 宣称"16MB 缓冲 / 卸载率 90% / CPU 4%"，但他的**实际配置文件用的是 4MB 上限**，性能数字无法独立验证。本项目采用他的真实配置（4MB），不采用夸大的 16MB。
+
 ## 八、文件清单
 
 | 文件 | 用途 |
 |---|---|
-| `build.sh` | 一键编译脚本（`DEVICE` 环境变量切机型；feeds / config / iStore 源码集成 / UPnP 修复 / SkyHigh 补丁 / defconfig / download / make） |
+| `build.sh` | 一键编译脚本（`DEVICE` 切机型；feeds / config / iStore / UPnP 修复 / SkyHigh 补丁 / **性能优化补丁容错注入** / defconfig / download / make） |
 | `feeds.addon` | 2 行第三方 feed（vantage、airoha） |
-| `config.addon` | 追加到 `.config` 的完整符号（8 插件、依赖、中文、IP、版本号，含 omcproxy/iStore） |
-| `files/etc/uci-defaults/zzzz-custom` | 首次开机设置 IP / 中文 / Vantage 主题 / 运行时去 git hash / DHCP force |
-| `patches/971-mtd-spinand-skyhigh-premature-ready.patch` | SkyHigh SPI NAND 二次确认补丁（仅 MD 用，基于 6.18.60 内核，已实测干净应用） |
-| `.github/workflows/build.yml` | XG-040G-MD 云编译 workflow（tag `firmware-rN`，含补丁与失败兜底） |
-| `.github/workflows/build-hg5382a.yml` | HG5382A 云编译 workflow（tag `hg5382a-rN`，并行 NAND 不打补丁） |
+| `config.addon` | 追加到 `.config` 的完整符号（插件、依赖、中文、IP、版本号、BBR/FullCone/ccache） |
+| `files/etc/uci-defaults/zzzz-custom` | 首次开机设置（IP/中文/主题/去 hash/DHCP force + flow offload/FullCone/NOTRACK 开关） |
+| `files/etc/sysctl.d/99-ponwrt-optimization.conf` | 网络性能调优（缓冲/队列/BBR/conntrack/内存） |
+| `files/etc/nftables.d/30-mss-clamp.nft` | TCP MSS 钳制（治 PPPoE PMTU 黑洞） |
+| `patches/971-mtd-spinand-skyhigh-premature-ready.patch` | SkyHigh SPI NAND 二次确认补丁（仅 MD 用，基于 6.18.60，已实测干净应用） |
+| `patches/airoha-6.18/` | PPE 卸载补丁 931/932 |
+| `patches/generic-6.18/` | FullCone 内核补丁 982-985 |
+| `patches/pkg/` | FullCone 包级补丁（nftables/libnftnl/firewall4）+ fullconenat-nft 包 |
+| `.github/workflows/build.yml` | XG-040G-MD 云编译 workflow（tag `firmware-rN`，含 ccache/补丁/失败兜底） |
+| `.github/workflows/build-hg5382a.yml` | HG5382A 云编译 workflow（tag `hg5382a-rN`，并行 NAND 不打闪存补丁） |
 
 > 注：`version.uc` 编译期 overlay 早已删除，改由 `zzzz-custom` 首次开机时生成，避免触发 `package/base-files` 编译失败。iStore 已从旧的「运行时安装」改为源码编译集成，旧的 `istore-reinstall.run` / `95-istore-auto-install` 两个文件已删除。

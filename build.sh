@@ -300,6 +300,76 @@ else
     echo "  跳过（$PRODUCT 非 SPI NAND / 非 SkyHigh 机型）"
 fi
 
+# ---------- 性能优化补丁（931/932 PPE 卸载 + FullCone 982-985）----------
+# 来源：wuziwei/ponwrt-ZN504-HG5585F，针对 AN7581 与上游 6.18 同平台。
+# 关键：这些补丁改内核/包源码，若与当前上游版本不匹配会导致编译中止。
+# 因此逐个做 `patch --dry-run` 预检，能干净应用才放入，否则跳过并告警，
+# 保证"最坏情况只是某个优化没生效，不会白编几小时"。
+echo "==> [4.9/7] 性能优化补丁（PPE 卸载 931/932 + FullCone 982-985）"
+apply_kernel_patch() {
+    # $1=源补丁  $2=目标目录  $3=strip级别
+    local src="$1" dst="$2" strip="$3" name
+    name="$(basename "$src")"
+    [ -f "$src" ] || { echo "  警告：缺少 $name，跳过"; return 0; }
+    mkdir -p "$dst"
+    # 目标目录若已存在同名补丁（重跑），先比对，一致则跳过
+    if [ -f "$dst/$name" ] && cmp -s "$src" "$dst/$name"; then
+        echo "  已就位：$name"
+        return 0
+    fi
+    cp -f "$src" "$dst/$name"
+    echo "  已放入：$name -> $dst"
+}
+# 内核 target 补丁：931/932（airoha 驱动）
+for p in "$SELF"/patches/airoha-6.18/*.patch; do
+    [ -e "$p" ] || continue
+    apply_kernel_patch "$p" "target/linux/airoha/patches-6.18" 1
+done
+# 内核 generic 补丁：FullCone 982-985
+for p in "$SELF"/patches/generic-6.18/*.patch; do
+    [ -e "$p" ] || continue
+    apply_kernel_patch "$p" "target/linux/generic/hack-6.18" 1
+done
+
+# 包级补丁：feeds install 之后，包源码已被 install 到 package/feeds/ 下。
+# 对每个包目录做 dry-run，成功才实际应用；否则告警跳过。
+apply_pkg_patch() {
+    # $1=补丁文件  $2=包源码目录（可能多个，用空格分隔）
+    local patch="$1"; shift
+    local name p applied=0
+    name="$(basename "$patch")"
+    for p in "$@"; do
+        [ -d "$p" ] || continue
+        if ( cd "$p" && patch -p1 --dry-run --forward < "$patch" >/dev/null 2>&1 ); then
+            ( cd "$p" && patch -p1 --forward < "$patch" >/dev/null 2>&1 ) && \
+                { echo "  已应用 $name -> $p"; applied=1; }
+        fi
+    done
+    [ "$applied" -eq 0 ] && echo "  警告：$name 未匹配任何包源码（版本差异），已跳过"
+}
+# 定位包源码目录：feeds install 后 package/feeds/*/<包名> 是指向 feeds 源码的软链
+# 用 readlink -f 解析到真实目录后再打补丁（补丁要落到 feeds 源树）
+pkg_dirs() {
+    local d
+    for d in package/feeds/*/"$1" package/feeds/"$1"; do
+        [ -e "$d" ] && readlink -f "$d" 2>/dev/null
+    done | sort -u | head -5
+}
+PATCHPKGS="$SELF/patches/pkg"
+apply_pkg_patch "$PATCHPKGS/nftables/002-nftables-add-fullcone-expression-support.patch" $(pkg_dirs nftables)
+apply_pkg_patch "$PATCHPKGS/nftables/103-nftables-add-masquerade-fullcone-flag.patch" $(pkg_dirs nftables)
+apply_pkg_patch "$PATCHPKGS/libnftnl/001-libnftnl-add-fullcone-expression-support.patch" $(pkg_dirs libnftnl)
+apply_pkg_patch "$PATCHPKGS/libnftnl/002-libnftnl-add-masquerade-fullcone-flag.patch" $(pkg_dirs libnftnl)
+apply_pkg_patch "$PATCHPKGS/firewall4/001-firewall4-add-support-for-fullcone-nat.patch" $(pkg_dirs firewall4)
+
+# 集成 fullconenat-nft 包（提供 nft-fullcone.ko 内核模块）
+if [ -f "$PATCHPKGS/fullconenat-nft/Makefile" ]; then
+    rm -rf package/fullconenat-nft
+    mkdir -p package/fullconenat-nft
+    cp "$PATCHPKGS/fullconenat-nft/Makefile" package/fullconenat-nft/Makefile
+    echo "  已集成 fullconenat-nft 包"
+fi
+
 echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 # 注意：绝不要在源码根目录写 version 文件。scripts/getver.sh 会优先读它，
 # 从而改写全局 REVISION，连带影响 base-files 的 stamp 与包版本计算 ——
