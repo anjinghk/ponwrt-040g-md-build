@@ -53,11 +53,12 @@ CONFIG_BUSYBOX_CONFIG_DEVMEM=y
 # luci-app-autoreboot 定时重启依赖 crond
 CONFIG_BUSYBOX_CONFIG_CROND=y
 
-# ---------- 性能优化（wuziwei/ponwrt-ZN504 实测方案）----------
+# ---------- 性能优化（AN7581/内核 6.18 通用优化）----------
 # BBR 拥塞控制：配合 sysctl tcp_congestion_control=bbr，改善高延迟链路吞吐
 CONFIG_PACKAGE_kmod-tcp-bbr=y
-# FullCone NAT 内核模块（由 build.sh 把 fullconenat-nft 包拷进 package/）：NAT1，BT/联机更稳
-CONFIG_PACKAGE_kmod-nft-fullcone=y
+# FullCone NAT 由内核补丁 982-985（Broadcom masquerade fullcone）提供，已编进内核。
+# 不再使用独立 kmod-nft-fullcone 包（其 2023 源码在 6.18 内核上编译失败）。
+# 开机时由 zzzz-custom 设置 firewall defaults.fullcone=2 启用。
 # 编译器缓存：重编时命中缓存，编译时间从 1.5~3 小时降到 20~40 分钟
 CONFIG_CCACHE=y
 

@@ -206,14 +206,14 @@ iStore（`luci-app-store`）**从源码编译进固件**，开机即用、无需
 
 ---
 
-## 七·补4、网络性能优化（集成 wuziwei/ponwrt-ZN504 实测方案）
+## 七·补4、网络性能优化（AN7581 / 内核 6.18 通用优化）
 
-两台机型均加入以下优化（WiFi 相关项不涉及，本机无 WiFi）：
+两台机型与本优化参考实现同为 **Airoha AN7581 SoC + Linux 6.18 内核**，下列补丁都是 **SoC / 内核级** 的通用优化，与具体板级型号（DTS / PHY / 闪存 / VLAN）无关，因此可安全用于本机。WiFi 相关项不涉及（本机无 WiFi）：
 
 | 优化 | 落地位置 | 作用 |
 |---|---|---|
 | **PPE 硬件卸载 931/932** | `patches/airoha-6.18/` | 修 AN7581 PPPoE/IPv6/桥接从端口的硬件卸载缺陷，解决 WAN 方向卸载率为 0、全靠 CPU 软转的问题（你 NPU 面板截图 CDM2=0 的病根） |
-| **FullCone NAT 982-985** | `patches/generic-6.18/` + `patches/pkg/` + `fullconenat-nft` 包 | NAT1，BT/迅雷/主机联机更稳；含 nftables/libnftnl/firewall4 配套补丁 |
+| **FullCone NAT 982-985**（Broadcom FullCone 2，内核方案） | `patches/generic-6.18/` 内核补丁 + `patches/pkg/` 用户态补丁 | NAT1，BT/迅雷/主机联机更稳；直接改内核 `nft_masq.c`/`nf_nat_masquerade.c`，编译进内核，开机用 `fullcone=2` 启用。这正是参考实现采用的方案（靠内核 PPE 硬件流卸载实现 FullCone 2）。已移除编译失败的独立 `fullconenat-nft` 模块——该模块是本项目误加的，参考实现并未使用，其 2023 源码不兼容 6.18 内核 |
 | **BBR 拥塞控制** | `config.addon` 的 `kmod-tcp-bbr` + sysctl | 高延迟链路吞吐更好 |
 | **缓冲区/队列/conntrack 调优** | `files/etc/sysctl.d/99-ponwrt-optimization.conf` | 初始缓冲 256KB 省内存、上限 4MB、netdev 队列 10000、conntrack 快速回收、网桥绕过 netfilter |
 | **MSS 钳制** | `files/etc/nftables.d/30-mss-clamp.nft` | 按链路 MTU 自动钳制 TCP MSS（PPPoE 1452），治微信朋友圈/CDN 转圈 |
@@ -238,7 +238,7 @@ iStore（`luci-app-store`）**从源码编译进固件**，开机即用、无需
 | `patches/971-mtd-spinand-skyhigh-premature-ready.patch` | SkyHigh SPI NAND 二次确认补丁（仅 MD 用，基于 6.18.60，已实测干净应用） |
 | `patches/airoha-6.18/` | PPE 卸载补丁 931/932 |
 | `patches/generic-6.18/` | FullCone 内核补丁 982-985 |
-| `patches/pkg/` | FullCone 包级补丁（nftables/libnftnl/firewall4）+ fullconenat-nft 包 |
+| `patches/pkg/` | FullCone 包级补丁（nftables/libnftnl/firewall4），配合内核补丁 982-985 使用；不含独立内核模块 |
 | `.github/workflows/build.yml` | XG-040G-MD 云编译 workflow（tag `firmware-rN`，含 ccache/补丁/失败兜底） |
 | `.github/workflows/build-hg5382a.yml` | HG5382A 云编译 workflow（tag `hg5382a-rN`，并行 NAND 不打闪存补丁） |
 

@@ -301,7 +301,7 @@ else
 fi
 
 # ---------- 性能优化补丁（931/932 PPE 卸载 + FullCone 982-985）----------
-# 来源：wuziwei/ponwrt-ZN504-HG5585F，针对 AN7581 与上游 6.18 同平台。
+# 依据：AN7581 SoC + 上游 6.18 内核通用优化（同平台，与板级型号无关）。
 # 关键：这些补丁改内核/包源码，若与当前上游版本不匹配会导致编译中止。
 # 因此逐个做 `patch --dry-run` 预检，能干净应用才放入，否则跳过并告警，
 # 保证"最坏情况只是某个优化没生效，不会白编几小时"。
@@ -362,13 +362,12 @@ apply_pkg_patch "$PATCHPKGS/libnftnl/001-libnftnl-add-fullcone-expression-suppor
 apply_pkg_patch "$PATCHPKGS/libnftnl/002-libnftnl-add-masquerade-fullcone-flag.patch" $(pkg_dirs libnftnl)
 apply_pkg_patch "$PATCHPKGS/firewall4/001-firewall4-add-support-for-fullcone-nat.patch" $(pkg_dirs firewall4)
 
-# 集成 fullconenat-nft 包（提供 nft-fullcone.ko 内核模块）
-if [ -f "$PATCHPKGS/fullconenat-nft/Makefile" ]; then
-    rm -rf package/fullconenat-nft
-    mkdir -p package/fullconenat-nft
-    cp "$PATCHPKGS/fullconenat-nft/Makefile" package/fullconenat-nft/Makefile
-    echo "  已集成 fullconenat-nft 包"
-fi
+# 说明：不再集成独立的 fullconenat-nft 包（nft_fullcone.ko）。
+# 原因：该项目源码停留在 2023-05-17，nft_fullcone_validate() 的函数指针签名
+# 与 6.12+ 内核的 nft_expr_ops 不兼容（-Werror=incompatible-pointer-types），
+# 在 6.18 内核上必然编译失败（ImmortalWrt issue #1850 同类问题）。
+# FullCone 改由内核补丁 982-985（Broadcom masquerade fullcone，已编进内核）
+# 提供，firewall4 补丁用 fullcone=2 模式启用，功能等价且不依赖独立模块。
 
 echo "==> [5/7] make defconfig（自动解析并补全依赖）"
 # 注意：绝不要在源码根目录写 version 文件。scripts/getver.sh 会优先读它，
